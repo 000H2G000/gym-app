@@ -477,7 +477,11 @@ export default function ExercisesScreen() {
     }
     
     // If workoutId is provided, use it directly instead of showing the dialog
-    if (workoutId && selectedWorkoutId) {
+    if (workoutId) {
+      // Make sure selectedWorkoutId is set to the workoutId from params
+      if (workoutId !== selectedWorkoutId) {
+        setSelectedWorkoutId(workoutId);
+      }
       addToWorkout();
     } else {
       setWorkoutDialogVisible(true);
