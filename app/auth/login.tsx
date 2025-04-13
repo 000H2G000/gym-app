@@ -1,20 +1,46 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, TextInput, TouchableOpacity, Image, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, TextInput, TouchableOpacity, Image, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { 
+  signInWithEmailAndPassword, 
+  sendPasswordResetEmail, 
+  browserSessionPersistence, 
+  browserLocalPersistence, 
+  setPersistence, 
+  AuthError 
+} from 'firebase/auth';
 import Spinner from 'react-native-loading-spinner-overlay';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { auth } from '../../firebase/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const colorScheme = useColorScheme();
+
+  // Check for saved credentials on component mount
+  useEffect(() => {
+    const loadSavedCredentials = async () => {
+      try {
+        const savedEmail = await AsyncStorage.getItem('userEmail');
+        if (savedEmail) {
+          setEmail(savedEmail);
+          setRememberMe(true);
+        }
+      } catch (error) {
+        console.error('Error loading saved credentials:', error);
+      }
+    };
+
+    loadSavedCredentials();
+  }, []);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -25,11 +51,49 @@ export default function LoginScreen() {
     try {
       setLoading(true);
       setError('');
-      await signInWithEmailAndPassword(auth, email, password);
+      
+      // Set persistence type based on "Remember Me" option
+      if (Platform.OS === 'web') {
+        const persistenceType = rememberMe 
+          ? browserLocalPersistence 
+          : browserSessionPersistence;
+        
+        await setPersistence(auth, persistenceType);
+      }
+      
+      // Sign in user
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Get the ID token
+      const idToken = await userCredential.user.getIdToken();
+      
+      // Save authentication token and email if "Remember Me" is checked
+      if (rememberMe) {
+        await AsyncStorage.setItem('userEmail', email);
+        await AsyncStorage.setItem('authToken', idToken);
+      } else {
+        // Clear saved credentials if "Remember Me" is unchecked
+        await AsyncStorage.removeItem('userEmail');
+        await AsyncStorage.removeItem('authToken');
+      }
+      
+      console.log('Login successful, session token stored');
+      
       // Successful login will navigate to main app via _layout.tsx auth check
-    } catch (error) {
-      setError('Invalid email or password. Please try again.');
-      console.log('Login error:', error);
+    } catch (error: unknown) {
+      console.error('Login error:', error);
+      let errorMessage = 'Invalid email or password. Please try again.';
+      
+      const authError = error as AuthError;
+      if (authError.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email. Please sign up.';
+      } else if (authError.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password. Please try again.';
+      } else if (authError.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed login attempts. Please try again later.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -135,6 +199,27 @@ export default function LoginScreen() {
             >
               <Text style={[styles.forgotPasswordText, { color: Colors[colorScheme ?? 'light'].tint }]}>
                 Forgot Password?
+              </Text>
+            </TouchableOpacity>
+
+            {/* Remember Me checkbox */}
+            <TouchableOpacity 
+              style={styles.rememberMeContainer}
+              onPress={() => setRememberMe(!rememberMe)}
+            >
+              <View style={[
+                styles.checkbox, 
+                { 
+                  borderColor: Colors[colorScheme ?? 'light'].tint,
+                  backgroundColor: rememberMe ? Colors[colorScheme ?? 'light'].tint : 'transparent' 
+                }
+              ]}>
+                {rememberMe && (
+                  <Text style={styles.checkmark}>✓</Text>
+                )}
+              </View>
+              <Text style={[styles.rememberMeText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Remember me
               </Text>
             </TouchableOpacity>
 
@@ -251,5 +336,27 @@ const styles = StyleSheet.create({
   signupLink: {
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  rememberMeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderRadius: 4,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkmark: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  rememberMeText: {
+    fontSize: 14,
   },
 }); 

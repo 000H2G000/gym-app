@@ -3,12 +3,13 @@ import { StyleSheet, View, Text, TextInput, TouchableOpacity, Image, ScrollView,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, AuthError } from 'firebase/auth';
 import { setDoc, doc } from 'firebase/firestore';
 import Spinner from 'react-native-loading-spinner-overlay';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { auth, db } from '../../firebase/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SignupScreen() {
   const [fullName, setFullName] = useState('');
@@ -43,6 +44,13 @@ export default function SignupScreen() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
+      // Get the authentication token
+      const idToken = await user.getIdToken();
+      
+      // Save token in AsyncStorage for session persistence
+      await AsyncStorage.setItem('authToken', idToken);
+      await AsyncStorage.setItem('userEmail', email);
+      
       // Store additional user data in Firestore
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
@@ -50,14 +58,23 @@ export default function SignupScreen() {
         email,
         gymPoints: 0,
         createdAt: new Date(),
-        photoURL: null
+        photoURL: null,
+        lastLogin: new Date()
       });
+      
+      console.log('Account created successfully, session token stored');
 
       // Navigation will happen via _layout.tsx auth check
-    } catch (error) {
-      console.log('Signup error:', error);
-      if (error.code === 'auth/email-already-in-use') {
+    } catch (error: unknown) {
+      console.error('Signup error:', error);
+      
+      const authError = error as AuthError;
+      if (authError.code === 'auth/email-already-in-use') {
         setError('Email is already in use. Please use a different email or login.');
+      } else if (authError.code === 'auth/invalid-email') {
+        setError('The email address is invalid. Please enter a valid email.');
+      } else if (authError.code === 'auth/weak-password') {
+        setError('Password is too weak. Choose a stronger password.');
       } else {
         setError('Failed to create account. Please try again.');
       }
