@@ -7,50 +7,76 @@ import { Colors } from '@/constants/Colors';
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
+import { BlurView } from 'expo-blur';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const isLight = colorScheme !== 'dark';
 
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarInactiveTintColor: Colors[colorScheme ?? 'light'].mutedText,
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
         tabBarStyle: {
           ...Platform.select({
             ios: {
-              // Use a transparent background on iOS to show the blur effect
               position: 'absolute',
             },
             default: {},
           }),
-          height: 65,
-          borderTopLeftRadius: 20,
-          borderTopRightRadius: 20,
+          height: 70,
+          borderTopLeftRadius: 25,
+          borderTopRightRadius: 25,
           borderTopWidth: 0,
           elevation: 10,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
           shadowOpacity: 0.1,
           shadowRadius: 4,
+          backgroundColor: Colors[colorScheme ?? 'light'].cardBackground,
+          paddingBottom: 10,
+          paddingTop: 5,
         },
       }}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={24} name="house.fill" color={color} />,
-          tabBarLabelStyle: { fontSize: 12 },
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.iconContainer, focused && { backgroundColor: color + '20' }]}>
+              <Ionicons name={focused ? "home" : "home-outline"} size={24} color={color} />
+            </View>
+          ),
+          tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
         }}
       />
       <Tabs.Screen
         name="exercises"
         options={{
           title: 'Exercises',
-          tabBarIcon: ({ color }) => <IconSymbol size={24} name="dumbbell.fill" color={color} />,
-          tabBarLabelStyle: { fontSize: 12 },
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.iconContainer, focused && { backgroundColor: color + '20' }]}>
+              <Ionicons name={focused ? "barbell" : "barbell-outline"} size={24} color={color} />
+            </View>
+          ),
+          tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
+        }}
+      />
+      <Tabs.Screen
+        name="workouts"
+        options={{
+          title: 'Workouts',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.iconContainer, focused && { backgroundColor: color + '20' }]}>
+              <Ionicons name={focused ? "calendar" : "calendar-outline"} size={24} color={color} />
+            </View>
+          ),
+          tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
+          unmountOnBlur: true,
         }}
       />
       <Tabs.Screen
@@ -66,7 +92,7 @@ export default function TabLayout() {
               <View style={[styles.centerTabButtonInner, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}>
                 <Ionicons name="people" size={26} color="white" />
               </View>
-              <Text style={[styles.centerTabLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Find Partner</Text>
+              <Text style={[styles.centerTabLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Partners</Text>
             </TouchableOpacity>
           ),
         }}
@@ -75,16 +101,24 @@ export default function TabLayout() {
         name="nutrition"
         options={{
           title: 'Nutrition',
-          tabBarIcon: ({ color }) => <IconSymbol size={24} name="fork.knife" color={color} />,
-          tabBarLabelStyle: { fontSize: 12 },
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.iconContainer, focused && { backgroundColor: color + '20' }]}>
+              <Ionicons name={focused ? "restaurant" : "restaurant-outline"} size={24} color={color} />
+            </View>
+          ),
+          tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => <IconSymbol size={24} name="person.fill" color={color} />,
-          tabBarLabelStyle: { fontSize: 12 },
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.iconContainer, focused && { backgroundColor: color + '20' }]}>
+              <Ionicons name={focused ? "person" : "person-outline"} size={24} color={color} />
+            </View>
+          ),
+          tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
         }}
       />
     </Tabs>
@@ -114,4 +148,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '500',
   },
+  iconContainer: {
+    padding: 8,
+    borderRadius: 16,
+  }
 });

@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity, Image } from 'react-native';
+import { StyleSheet, ScrollView, View, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -8,12 +8,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { AuthContext } from '../_layout';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, DocumentData } from 'firebase/firestore';
 import { db } from '../../firebase/config';
+import { Avatar, Button, Card, Text, TouchableRipple, Surface, Divider } from 'react-native-paper';
+
+interface UserData {
+  fullName?: string;
+  photoURL?: string;
+  email?: string;
+}
+
+interface User {
+  uid: string;
+  email?: string;
+}
 
 export default function HomeScreen() {
-  const { user } = useContext(AuthContext);
-  const [userData, setUserData] = useState(null);
+  const { user } = useContext(AuthContext) as { user: User | null };
+  const [userData, setUserData] = useState<UserData | null>(null);
   const colorScheme = useColorScheme();
   
   useEffect(() => {
@@ -22,7 +34,7 @@ export default function HomeScreen() {
         if (user?.uid) {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
-            setUserData(userDoc.data());
+            setUserData(userDoc.data() as UserData);
           }
         }
       } catch (error) {
@@ -40,20 +52,24 @@ export default function HomeScreen() {
     return 'Good Evening';
   };
 
-  const navigateTo = (route: string) => {
+  const navigateTo = (route: any) => {
     router.push(route);
   };
 
-  const QuickAction = ({ icon, label, onPress, color }: { icon: string, label: string, onPress: () => void, color: string }) => (
-    <TouchableOpacity 
+  const QuickAction = ({ icon, label, onPress, color }: { icon: any, label: string, onPress: () => void, color: string }) => (
+    <TouchableRipple 
       style={[styles.quickAction, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}
       onPress={onPress}
+      borderless
+      rippleColor="rgba(0, 0, 0, 0.1)"
     >
-      <View style={[styles.quickActionIcon, { backgroundColor: color }]}>
-        <Ionicons name={icon} size={24} color="white" />
+      <View style={styles.quickActionContent}>
+        <Surface style={[styles.quickActionIcon, { backgroundColor: color }]}>
+          <Ionicons name={icon as any} size={24} color="white" />
+        </Surface>
+        <Text style={[styles.quickActionLabel, { color: Colors[colorScheme ?? 'light'].text }]}>{label}</Text>
       </View>
-      <Text style={[styles.quickActionLabel, { color: Colors[colorScheme ?? 'light'].text }]}>{label}</Text>
-    </TouchableOpacity>
+    </TouchableRipple>
   );
 
   return (
@@ -62,46 +78,48 @@ export default function HomeScreen() {
       
       <View style={styles.header}>
         <View>
-          <Text style={[styles.greeting, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+          <Text variant="bodyMedium" style={{ color: Colors[colorScheme ?? 'light'].mutedText }}>
             {getGreeting()}
           </Text>
-          <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
+          <Text variant="headlineMedium" style={{ fontWeight: 'bold', color: Colors[colorScheme ?? 'light'].text }}>
             {userData?.fullName || 'User'}
           </Text>
         </View>
         
-        <TouchableOpacity onPress={() => navigateTo('/profile')}>
+        <TouchableRipple onPress={() => navigateTo('/profile')} borderless>
           {userData?.photoURL ? (
-            <Image source={{ uri: userData.photoURL }} style={styles.avatar} />
+            <Avatar.Image size={45} source={{ uri: userData.photoURL }} />
           ) : (
-            <View style={[styles.avatarPlaceholder, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}>
-              <Text style={styles.avatarInitial}>
-                {userData?.fullName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
-              </Text>
-            </View>
+            <Avatar.Text 
+              size={45} 
+              label={(userData?.fullName?.charAt(0) || user?.email?.charAt(0) || '?').toUpperCase()} 
+              style={{ backgroundColor: Colors[colorScheme ?? 'light'].tint }}
+            />
           )}
-        </TouchableOpacity>
+        </TouchableRipple>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.welcomeCard}>
+        <Card style={styles.welcomeCard}>
           <LinearGradient
             colors={['#4A90E2', '#357ABD']}
             style={styles.welcomeGradient}
           >
             <View style={styles.welcomeContent}>
-              <Text style={styles.welcomeTitle}>Ready to Workout?</Text>
-              <Text style={styles.welcomeSubtitle}>Start your fitness journey today</Text>
-              <TouchableOpacity 
-                style={styles.startButton}
+              <Text variant="headlineMedium" style={styles.welcomeTitle}>Ready to Workout?</Text>
+              <Text variant="bodyMedium" style={styles.welcomeSubtitle}>Start your fitness journey today</Text>
+              <Button 
+                mode="contained" 
+                buttonColor="rgba(255, 255, 255, 0.2)"
+                icon="arrow-right"
                 onPress={() => navigateTo('/exercises')}
+                style={styles.startButton}
               >
-                <Text style={styles.startButtonText}>Get Started</Text>
-                <Ionicons name="arrow-forward" size={20} color="white" />
-              </TouchableOpacity>
+                Get Started
+              </Button>
             </View>
           </LinearGradient>
-        </View>
+        </Card>
 
         <View style={styles.quickActions}>
           <QuickAction 
@@ -131,41 +149,47 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.statsSection}>
-          <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+          <Text variant="titleMedium" style={{ fontWeight: 'bold', marginBottom: 15, color: Colors[colorScheme ?? 'light'].text }}>
             Today's Progress
           </Text>
           <View style={styles.statsGrid}>
-            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
-              <Ionicons name="fitness-outline" size={24} color="#FF7043" />
-              <Text style={[styles.statValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                5
-              </Text>
-              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
-                Workouts
-              </Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
-              <Ionicons name="flame-outline" size={24} color="#FF7043" />
-              <Text style={[styles.statValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                1,850
-              </Text>
-              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
-                Calories
-              </Text>
-            </View>
+            <Card style={styles.statCard} mode="outlined">
+              <Card.Content style={styles.statCardContent}>
+                <Ionicons name="fitness-outline" size={24} color="#FF7043" />
+                <Text variant="headlineSmall" style={{ fontWeight: 'bold', marginVertical: 5 }}>
+                  5
+                </Text>
+                <Text variant="bodySmall" style={{ color: Colors[colorScheme ?? 'light'].mutedText }}>
+                  Workouts
+                </Text>
+              </Card.Content>
+            </Card>
+            <Card style={styles.statCard} mode="outlined">
+              <Card.Content style={styles.statCardContent}>
+                <Ionicons name="flame-outline" size={24} color="#FF7043" />
+                <Text variant="headlineSmall" style={{ fontWeight: 'bold', marginVertical: 5 }}>
+                  1,850
+                </Text>
+                <Text variant="bodySmall" style={{ color: Colors[colorScheme ?? 'light'].mutedText }}>
+                  Calories
+                </Text>
+              </Card.Content>
+            </Card>
           </View>
         </View>
 
         <View style={styles.tipSection}>
-          <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+          <Text variant="titleMedium" style={{ fontWeight: 'bold', marginBottom: 15, color: Colors[colorScheme ?? 'light'].text }}>
             Daily Tip
           </Text>
-          <View style={[styles.tipCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
-            <Ionicons name="bulb-outline" size={24} color="#FFC107" />
-            <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text }]}>
-              Stay hydrated! Drink at least 8 glasses of water daily for optimal performance.
-            </Text>
-          </View>
+          <Card style={styles.tipCard} mode="outlined">
+            <Card.Content style={styles.tipCardContent}>
+              <Ionicons name="bulb-outline" size={24} color="#FFC107" style={{ marginRight: 10 }} />
+              <Text variant="bodyMedium">
+                Stay hydrated! Drink at least 8 glasses of water daily for optimal performance.
+              </Text>
+            </Card.Content>
+          </Card>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -184,31 +208,6 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 20,
   },
-  greeting: {
-    fontSize: 14,
-    opacity: 0.8,
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  avatar: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-  },
-  avatarPlaceholder: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarInitial: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
-  },
   scrollView: {
     flex: 1,
   },
@@ -218,10 +217,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
   },
   welcomeGradient: {
     padding: 20,
@@ -230,29 +225,16 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   welcomeTitle: {
-    fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
     marginBottom: 8,
   },
   welcomeSubtitle: {
-    fontSize: 16,
     color: 'rgba(255, 255, 255, 0.8)',
     marginBottom: 20,
   },
   startButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
     borderRadius: 25,
-  },
-  startButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    marginRight: 8,
   },
   quickActions: {
     flexDirection: 'row',
@@ -266,6 +248,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: '22%',
   },
+  quickActionContent: {
+    alignItems: 'center',
+  },
   quickActionIcon: {
     width: 50,
     height: 50,
@@ -273,6 +258,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
+    elevation: 2,
   },
   quickActionLabel: {
     fontSize: 12,
@@ -282,43 +268,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 20,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
-  },
   statsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
   statCard: {
     flex: 1,
-    padding: 15,
-    borderRadius: 12,
     marginHorizontal: 5,
+    borderRadius: 12,
+  },
+  statCardContent: {
     alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginVertical: 5,
-  },
-  statLabel: {
-    fontSize: 12,
+    padding: 15,
   },
   tipSection: {
     paddingHorizontal: 20,
     marginBottom: 20,
   },
   tipCard: {
+    borderRadius: 12,
+  },
+  tipCardContent: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 15,
-    borderRadius: 12,
-  },
-  tipText: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 14,
   },
 });

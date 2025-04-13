@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { auth } from '../firebase/config';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -77,14 +78,41 @@ function SplashScreenComponent() {
 }
 
 export default function RootLayout() {
+  const colorScheme = useColorScheme();
+  
+  // Create custom theme based on app colors
+  const theme = colorScheme === 'dark' 
+    ? {
+        ...MD3DarkTheme,
+        colors: {
+          ...MD3DarkTheme.colors,
+          primary: Colors.dark.tint,
+          background: Colors.dark.background,
+          surface: Colors.dark.cardBackground,
+          error: '#EF4444',
+        },
+      }
+    : {
+        ...MD3LightTheme,
+        colors: {
+          ...MD3LightTheme.colors,
+          primary: Colors.light.tint,
+          background: Colors.light.background,
+          surface: Colors.light.cardBackground,
+          error: '#EF4444',
+        },
+      };
+  
   return (
-    <AuthProvider>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="auth" />
-      </Stack>
-    </AuthProvider>
+    <PaperProvider theme={theme}>
+      <AuthProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="auth" />
+        </Stack>
+      </AuthProvider>
+    </PaperProvider>
   );
 }
 
