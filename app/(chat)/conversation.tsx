@@ -22,21 +22,23 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { AuthContext } from '../(tabs)/_layout';
 import { getAuth } from 'firebase/auth';
-import { app } from '../../firebase/config';
+import { app, db } from '../../firebase/config';
 import { 
   sendMessage, 
   getMessages, 
   subscribeToMessages, 
   markMessagesAsRead,
   Message,
-  addReactionToMessage
+  addReactionToMessage,
+  getChatId
 } from '../../services/chatService';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { Avatar, IconButton, Surface } from 'react-native-paper';
+import { Avatar, IconButton, Surface, Chip } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
+import { doc, getDoc } from 'firebase/firestore';
 
 // Emoji reactions available
-const REACTIONS = ['👍', '❤️', '💪', '🔥', '👏', '🎯', '💯', '🏆'];
+const REACTIONS = ['❤️', '👍', '😂', '😮', '😢', '😡'];
 
 export default function ConversationScreen() {
   const colorScheme = useColorScheme();
@@ -67,6 +69,9 @@ export default function ConversationScreen() {
   
   // Get the user ID and name from the URL params
   const { userId, name } = useLocalSearchParams<{ userId: string, name: string }>();
+  
+  const [isPartnerChat, setIsPartnerChat] = useState(false);
+  const [partnerWorkout, setPartnerWorkout] = useState<{id: string, name: string} | null>(null);
   
   // Get user from Firebase auth directly if not in context
   useEffect(() => {
@@ -414,6 +419,43 @@ export default function ConversationScreen() {
     );
   };
   
+  // Check if this is a partner chat
+  useEffect(() => {
+    const checkPartnerChat = async () => {
+      if (!userId || !user) return;
+      
+      try {
+        const chatId = getChatId(user.uid, userId);
+        const chatRef = doc(db, 'chats', chatId);
+        const chatSnap = await getDoc(chatRef);
+        
+        if (chatSnap.exists()) {
+          const chatData = chatSnap.data();
+          if (chatData.isPartnerChat) {
+            setIsPartnerChat(true);
+            if (chatData.workoutId) {
+              // Get workout details
+              const workoutRef = doc(db, 'workouts', chatData.workoutId);
+              const workoutSnap = await getDoc(workoutRef);
+              
+              if (workoutSnap.exists()) {
+                const workoutData = workoutSnap.data();
+                setPartnerWorkout({
+                  id: chatData.workoutId,
+                  name: workoutData.name
+                });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking partner chat status:', error);
+      }
+    };
+    
+    checkPartnerChat();
+  }, [userId, user]);
+  
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
@@ -447,6 +489,34 @@ export default function ConversationScreen() {
           )
         }}
       />
+      
+      {isPartnerChat && partnerWorkout && (
+        <View style={{ 
+          paddingHorizontal: 16, 
+          paddingVertical: 8, 
+          backgroundColor: Colors[colorScheme ?? 'light'].background,
+          borderBottomWidth: 1,
+          borderBottomColor: 'rgba(0,0,0,0.1)',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <Chip
+            icon="dumbbell"
+            style={{ 
+              backgroundColor: Colors[colorScheme ?? 'light'].tint + '20'
+            }}
+            onPress={() => {
+              router.push({
+                pathname: '/(tabs)/workouts',
+                params: { selectedWorkoutId: partnerWorkout.id, refreshWorkouts: 'true' }
+              });
+            }}
+          >
+            Workout Partners: {partnerWorkout.name}
+          </Chip>
+        </View>
+      )}
       
       {!user ? (
         <View style={styles.emptyContainer}>

@@ -8,6 +8,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Notification, subscribeToNotifications } from '../services/notificationService';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -26,11 +27,25 @@ interface AuthContextType {
   logout: () => Promise<void>;
 }
 
+// Define NotificationContext type
+interface NotificationContextType {
+  notifications: Notification[];
+  unreadCount: number;
+  refreshNotifications: () => Promise<void>;
+}
+
 // Create authentication context
 export const AuthContext = React.createContext<AuthContextType>({
   signedIn: false,
   user: null,
   logout: async () => {}
+});
+
+// Create notification context
+export const NotificationContext = React.createContext<NotificationContextType>({
+  notifications: [],
+  unreadCount: 0,
+  refreshNotifications: async () => {}
 });
 
 // Define our auth provider component
@@ -154,8 +169,84 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       user: authState.user,
       logout
     }}>
-      {authState.isLoading ? <SplashScreenComponent /> : children}
+      {authState.isLoading ? (
+        <SplashScreenComponent /> 
+      ) : (
+        <NotificationProvider user={authState.user}>
+          {children}
+        </NotificationProvider>
+      )}
     </AuthContext.Provider>
+  );
+}
+
+// Define notification provider component
+function NotificationProvider({ children, user }: { children: React.ReactNode, user: User | null }) {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Function to manually refresh notifications
+  const refreshNotifications = async () => {
+    if (!user || !user.uid) return;
+    
+    try {
+      console.log("Manually refreshing notifications for user:", user.uid);
+      // We can use the same function that the subscription uses,
+      // but call it manually and wait for the result
+      const notificationService = await import('../services/notificationService');
+      const userNotifications = await notificationService.getUserNotifications(user.uid);
+      
+      setNotifications(userNotifications);
+      
+      // Calculate unread count
+      const unread = userNotifications.filter(n => 
+        n.status === 'pending' || 
+        (n.type === 'message' && n.status !== 'read')
+      ).length;
+      
+      setUnreadCount(unread);
+    } catch (error) {
+      console.error("Error refreshing notifications:", error);
+    }
+  };
+
+  // Subscribe to notifications when user is logged in
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    if (user && user.uid) {
+      console.log("Setting up notification subscription for user:", user.uid);
+      
+      unsubscribe = subscribeToNotifications(user.uid, (newNotifications) => {
+        setNotifications(newNotifications);
+        
+        // Calculate unread count
+        const unread = newNotifications.filter(n => 
+          n.status === 'pending' || 
+          (n.type === 'message' && n.status !== 'read')
+        ).length;
+        
+        setUnreadCount(unread);
+      });
+    } else {
+      // Reset notifications when logged out
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+
+    // Cleanup subscription on unmount or when user changes
+    return () => {
+      if (unsubscribe) {
+        console.log("Cleaning up notification subscription");
+        unsubscribe();
+      }
+    };
+  }, [user]);
+
+  return (
+    <NotificationContext.Provider value={{ notifications, unreadCount, refreshNotifications }}>
+      {children}
+    </NotificationContext.Provider>
   );
 }
 
@@ -199,13 +290,26 @@ export default function RootLayout() {
         },
       };
   
+  // Hide splash screen once app is ready
+  useEffect(() => {
+    SplashScreen.hideAsync();
+  }, []);
+  
+  // The NotificationProvider is now inside the AuthProvider component
+  // and receives the user information directly
   return (
     <PaperProvider theme={theme}>
       <AuthProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="auth" />
+        <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+          <Stack.Screen name="auth/login" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="auth/signup" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="auth/reset-password" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="profile" />
+          <Stack.Screen name="partners" />
+          <Stack.Screen name="nutrition" />
+          <Stack.Screen name="notifications" />
+          <Stack.Screen name="(chat)/conversation" />
         </Stack>
       </AuthProvider>
     </PaperProvider>

@@ -7,10 +7,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { AuthContext } from '../_layout';
+import { AuthContext, NotificationContext } from '../_layout';
 import { doc, getDoc, DocumentData } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { Avatar, Button, Card, Text, TouchableRipple, Surface, Divider } from 'react-native-paper';
+import { Avatar, Button, Card, Text, TouchableRipple, Surface, Divider, Chip } from 'react-native-paper';
+import { Notification } from '../../services/notificationService';
 
 interface UserData {
   fullName?: string;
@@ -23,10 +24,26 @@ interface User {
   email?: string;
 }
 
+interface Notification {
+  type: string;
+  status: string;
+  senderId: string;
+  senderName?: string;
+  updatedAt?: { seconds: number };
+  createdAt?: { seconds: number };
+}
+
 export default function HomeScreen() {
   const { user } = useContext(AuthContext) as { user: User | null };
+  const notificationCtx = useContext(NotificationContext);
+  const { notifications } = notificationCtx || { notifications: [] };
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [partnerNotifications, setPartnerNotifications] = useState<Notification[]>([]);
   const colorScheme = useColorScheme();
+  
+  console.log("HomeScreen: NotificationContext value:", 
+    notificationCtx ? "exists" : "undefined", 
+    "Notifications:", notifications ? notifications.length : "undefined");
   
   useEffect(() => {
     const fetchUserData = async () => {
@@ -45,6 +62,32 @@ export default function HomeScreen() {
     fetchUserData();
   }, [user]);
 
+  // Filter partner request notifications
+  useEffect(() => {
+    if (notifications && notifications.length > 0) {
+      // Get recent partner request notifications, showing accepted ones first
+      const partnerReqs = notifications
+        .filter(n => n.type === 'partner_request')
+        .sort((a, b) => {
+          // First sort by status (accepted first, then pending, then others)
+          if (a.status === 'accepted' && b.status !== 'accepted') return -1;
+          if (b.status === 'accepted' && a.status !== 'accepted') return 1;
+          if (a.status === 'pending' && b.status !== 'pending') return -1;
+          if (b.status === 'pending' && a.status !== 'pending') return 1;
+          
+          // Then sort by date (newest first)
+          const aDate = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+          const bDate = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+          return bDate - aDate;
+        })
+        .slice(0, 3); // Show up to 3 notifications
+      
+      setPartnerNotifications(partnerReqs);
+    } else {
+      setPartnerNotifications([]);
+    }
+  }, [notifications]);
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
@@ -54,6 +97,17 @@ export default function HomeScreen() {
 
   const navigateTo = (route: any) => {
     router.push(route);
+  };
+
+  // Navigate to chat with a partner
+  const navigateToChat = (notification: Notification) => {
+    router.push({
+      pathname: '/(chat)/conversation',
+      params: {
+        userId: notification.senderId,
+        name: notification.senderName || 'Gym Partner'
+      }
+    });
   };
 
   const QuickAction = ({ icon, label, onPress, color }: { icon: any, label: string, onPress: () => void, color: string }) => (
@@ -100,6 +154,92 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Partner request notifications */}
+        {partnerNotifications.length > 0 && (
+          <View style={styles.notificationSection}>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', marginBottom: 15, color: Colors[colorScheme ?? 'light'].text }}>
+              Partner Requests
+            </Text>
+            {partnerNotifications.map((notification) => (
+              <Card 
+                key={notification.id} 
+                style={[styles.notificationCard, { 
+                  backgroundColor: notification.status === 'accepted' 
+                    ? 'rgba(76, 175, 80, 0.1)' 
+                    : Colors[colorScheme ?? 'light'].cardBackground 
+                }]}
+                mode="outlined"
+              >
+                <Card.Content style={styles.notificationContent}>
+                  <View style={styles.notificationHeader}>
+                    <Avatar.Text 
+                      size={40} 
+                      label={notification.senderName?.substring(0, 2).toUpperCase() || 'GP'} 
+                      style={{ backgroundColor: Colors[colorScheme ?? 'light'].tint, marginRight: 10 }}
+                    />
+                    
+                    <View style={{ flex: 1 }}>
+                      <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
+                        {notification.senderName || 'Gym Partner'}
+                      </Text>
+                      <Text variant="bodySmall" style={{ color: Colors[colorScheme ?? 'light'].mutedText }}>
+                        {notification.workoutName} • {notification.day}
+                      </Text>
+                    </View>
+                    
+                    {notification.status === 'pending' && (
+                      <Chip 
+                        mode="flat" 
+                        style={{ backgroundColor: '#FFC107' }}
+                        textStyle={{ color: 'white', fontSize: 10 }}
+                      >
+                        Pending
+                      </Chip>
+                    )}
+                    {notification.status === 'accepted' && (
+                      <Chip 
+                        mode="flat" 
+                        style={{ backgroundColor: '#4CAF50' }}
+                        textStyle={{ color: 'white', fontSize: 10 }}
+                      >
+                        Accepted
+                      </Chip>
+                    )}
+                  </View>
+                  
+                  {notification.status === 'accepted' ? (
+                    <Button 
+                      mode="contained" 
+                      icon="chat" 
+                      onPress={() => navigateToChat(notification)}
+                      style={styles.chatButton}
+                    >
+                      Chat Now
+                    </Button>
+                  ) : (
+                    <Button 
+                      mode="outlined" 
+                      icon="information-outline" 
+                      onPress={() => router.push('/notifications')}
+                      style={styles.viewButton}
+                    >
+                      View Details
+                    </Button>
+                  )}
+                </Card.Content>
+              </Card>
+            ))}
+            
+            <Button 
+              mode="text" 
+              onPress={() => router.push('/notifications')}
+              style={{ alignSelf: 'flex-end', marginTop: 8 }}
+            >
+              View All
+            </Button>
+          </View>
+        )}
+
         <Card style={styles.welcomeCard}>
           <LinearGradient
             colors={['#4A90E2', '#357ABD']}
@@ -292,5 +432,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 15,
+  },
+  notificationSection: {
+    marginTop: 10,
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  notificationCard: {
+    marginBottom: 12,
+    borderRadius: 12,
+    elevation: 1,
+  },
+  notificationContent: {
+    padding: 10,
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  chatButton: {
+    marginTop: 8,
+    backgroundColor: '#4CAF50',
+  },
+  viewButton: {
+    marginTop: 8,
   },
 });
