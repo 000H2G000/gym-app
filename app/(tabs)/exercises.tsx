@@ -262,7 +262,7 @@ export default function ExercisesScreen() {
         setLoading(false);
       });
     }
-  }, [key, muscle]); // Key dependency ensures this runs when navigation occurs
+  }, [key, muscle, workoutId]); // Add workoutId to dependencies to refresh when it changes
 
   // Fetch exercises with filters
   const fetchExercises = async () => {
@@ -405,7 +405,12 @@ export default function ExercisesScreen() {
 
   // Add exercise to workout function
   const addToWorkout = async () => {
-    if (!selectedExercise || !selectedWorkoutId || !user) {
+    // Determine which workout ID to use
+    // 1. If we navigated here directly from the workouts tab with a specific workoutId, use that
+    // 2. Otherwise, use the workout the user selected in the dialog
+    const targetWorkoutId = workoutId && !workoutDialogVisible ? workoutId : selectedWorkoutId;
+    
+    if (!selectedExercise || !targetWorkoutId || !user) {
       Alert.alert("Error", "Please select a workout to add this exercise to.");
       return;
     }
@@ -417,9 +422,9 @@ export default function ExercisesScreen() {
       const reps = parseInt(repsInput, 10) || 10;
       
       // Add the exercise to the server first
-      console.log(`Adding exercise ${selectedExercise.name} to workout ${selectedWorkoutId}`);
+      console.log(`Adding exercise ${selectedExercise.name} to workout ${targetWorkoutId} (from URL: ${workoutId === targetWorkoutId ? 'yes' : 'no'})`);
       await addExerciseToWorkout(
-        selectedWorkoutId, 
+        targetWorkoutId, 
         selectedExercise,
         sets,
         reps
@@ -448,7 +453,16 @@ export default function ExercisesScreen() {
             pathname: '/(tabs)/workouts',
             params: {
               refreshWorkouts: 'true',
-              selectedWorkoutId: workoutId.toString() // Ensure it's a string
+              selectedWorkoutId: targetWorkoutId.toString() // Use targetWorkoutId which is what we actually used
+            }
+          });
+        } else if (selectedWorkoutId) {
+          // When user selected a workout from the dialog
+          router.push({
+            pathname: '/(tabs)/workouts',
+            params: {
+              refreshWorkouts: 'true',
+              selectedWorkoutId: targetWorkoutId.toString() // Use targetWorkoutId
             }
           });
         } else {
@@ -476,14 +490,16 @@ export default function ExercisesScreen() {
       return;
     }
     
-    // If workoutId is provided, use it directly instead of showing the dialog
-    if (workoutId) {
-      // Make sure selectedWorkoutId is set to the workoutId from params
-      if (workoutId !== selectedWorkoutId) {
-        setSelectedWorkoutId(workoutId);
-      }
+    // If workoutId is provided from a direct navigation (not from user selecting
+    // a different workout in dialog), use it directly
+    if (workoutId && selectedWorkoutId !== workoutId) {
+      console.log(`Using workout ID from URL params: ${workoutId}`);
+      // Set selectedWorkoutId to match the workoutId from params
+      setSelectedWorkoutId(workoutId);
       addToWorkout();
     } else {
+      console.log('Showing workout selection dialog');
+      // Always show the dialog if user has previously interacted with it or no workoutId is provided
       setWorkoutDialogVisible(true);
     }
   };
@@ -718,9 +734,29 @@ export default function ExercisesScreen() {
         }
       ]}>
         <View style={styles.titleRow}>
-          <Text variant="headlineMedium" style={{ color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold' }}>
-            Exercises
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {workoutId && (
+              <IconButton
+                icon="arrow-left"
+                size={24} 
+                onPress={() => {
+                  // Go back to workouts screen with the selected workout
+                  router.push({
+                    pathname: '/(tabs)/workouts',
+                    params: {
+                      refreshWorkouts: 'true',
+                      selectedWorkoutId: workoutId.toString()
+                    }
+                  });
+                }}
+                style={{ marginRight: 4, marginLeft: -8 }}
+                iconColor={Colors[colorScheme ?? 'light'].text}
+              />
+            )}
+            <Text variant="headlineMedium" style={{ color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold' }}>
+              Exercises
+            </Text>
+          </View>
           <View style={{ flexDirection: 'row' }}>
             <Menu
               visible={typeMenuVisible}
@@ -1160,14 +1196,26 @@ export default function ExercisesScreen() {
                   onPress={() => {
                     setWorkoutDialogVisible(false);
                     closeExerciseDetails();
-                    router.push('/(tabs)/workouts');
+                    router.push({
+                      pathname: '/(tabs)/workouts',
+                      params: { 
+                        createForDay: selectedDay,
+                        showWorkoutDialog: 'true'
+                      }
+                    });
                   }}
                 >
                   Create Workout
                 </Button>
               </View>
             ) : (
-              <RadioButton.Group onValueChange={value => setSelectedWorkoutId(value)} value={selectedWorkoutId || ''}>
+              <RadioButton.Group 
+                onValueChange={value => {
+                  console.log('Selected workout ID changed to:', value);
+                  setSelectedWorkoutId(value);
+                }} 
+                value={selectedWorkoutId || ''}
+              >
                 {getWorkoutsForDay(selectedDay).map(workout => (
                   <RadioButton.Item
                     key={workout.id}

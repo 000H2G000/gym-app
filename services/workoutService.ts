@@ -51,9 +51,13 @@ export const updateWorkoutInLocalCache = (updatedWorkout: Workout): void => {
 };
 
 // Modify getUserWorkouts to use and update the cache
-export const getUserWorkouts = async (userId: string): Promise<Workout[]> => {
+export const getUserWorkouts = async (userId: string, includeAllUsers: boolean = false): Promise<Workout[]> => {
   try {
-    const q = query(collection(db, 'workouts'), where('userId', '==', userId));
+    // If includeAllUsers is true, query all workouts, otherwise just the user's workouts
+    const q = includeAllUsers 
+      ? query(collection(db, 'workouts')) 
+      : query(collection(db, 'workouts'), where('userId', '==', userId));
+    
     const querySnapshot = await getDocs(q);
     
     const workouts: Workout[] = [];
@@ -61,8 +65,10 @@ export const getUserWorkouts = async (userId: string): Promise<Workout[]> => {
       workouts.push({ id: doc.id, ...doc.data() } as Workout);
     });
     
-    // Update the cache
-    workoutsCache = workouts;
+    // Only update the cache if we're fetching the user's workouts
+    if (!includeAllUsers) {
+      workoutsCache = workouts;
+    }
     
     return workouts;
   } catch (error) {
@@ -207,6 +213,109 @@ export const updateWorkoutDay = async (
     });
   } catch (error) {
     console.error('Error updating workout day', error);
+    throw error;
+  }
+};
+
+// Find potential gym partners with same workout on the same day
+export interface GymPartner {
+  userId: string;
+  fullName: string;
+  photoURL?: string;
+  workoutId: string;
+  workoutName: string;
+  day: string;
+}
+
+export const findGymPartners = async (workout: Workout, currentUserId: string): Promise<GymPartner[]> => {
+  try {
+    // Get the day of the workout
+    const day = workout.day || 'Monday';
+    
+    // Find workouts on the same day from different users
+    const workoutsQuery = query(
+      collection(db, 'workouts'), 
+      where('day', '==', day),
+      where('userId', '!=', currentUserId)
+    );
+    
+    const workoutsSnapshot = await getDocs(workoutsQuery);
+    
+    if (workoutsSnapshot.empty) {
+      return [];
+    }
+    
+    const partners: GymPartner[] = [];
+    
+    // Extract muscle groups from the current workout's exercises
+    const workoutMuscles = new Set(
+      workout.exercises
+        .map(ex => ex.muscle?.toLowerCase())
+        .filter(muscle => muscle) // Filter out undefined/empty
+    );
+    
+    // For each matching workout, check muscle group overlap
+    for (const workoutDoc of workoutsSnapshot.docs) {
+      const partnerWorkout = { id: workoutDoc.id, ...workoutDoc.data() } as Workout;
+      
+      // Skip workouts with no exercises
+      if (!partnerWorkout.exercises || partnerWorkout.exercises.length === 0) {
+        continue;
+      }
+      
+      // Extract muscle groups from partner workout
+      const partnerMuscles = new Set(
+        partnerWorkout.exercises
+          .map(ex => ex.muscle?.toLowerCase())
+          .filter(muscle => muscle) // Filter out undefined/empty
+      );
+      
+      // Skip if no muscle groups overlap
+      let hasOverlap = false;
+      
+      // Check for muscle group overlap
+      if (workoutMuscles.size > 0 && partnerMuscles.size > 0) {
+        for (const muscle of workoutMuscles) {
+          if (partnerMuscles.has(muscle)) {
+            hasOverlap = true;
+            break;
+          }
+        }
+      }
+      
+      // If workout name contains similar words, consider it a match too
+      const workoutWords = workout.name.toLowerCase().split(/[\s-_]+/);
+      const partnerWords = partnerWorkout.name.toLowerCase().split(/[\s-_]+/);
+      
+      for (const word of workoutWords) {
+        if (word.length > 3 && partnerWords.includes(word)) { // Check for meaningful words (length > 3)
+          hasOverlap = true;
+          break;
+        }
+      }
+      
+      if (hasOverlap) {
+        // Get user info for this workout
+        const userDoc = await getDoc(doc(db, 'users', partnerWorkout.userId));
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          
+          partners.push({
+            userId: partnerWorkout.userId,
+            fullName: userData.fullName || 'Anonymous User',
+            photoURL: userData.photoURL,
+            workoutId: partnerWorkout.id || '',
+            workoutName: partnerWorkout.name,
+            day: partnerWorkout.day || 'Unknown',
+          });
+        }
+      }
+    }
+    
+    return partners;
+  } catch (error) {
+    console.error('Error finding gym partners:', error);
     throw error;
   }
 }; 

@@ -29,7 +29,8 @@ import {
   Menu,
   Chip,
   SegmentedButtons,
-  RadioButton
+  RadioButton,
+  Avatar
 } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../_layout';
@@ -40,10 +41,14 @@ import {
   createWorkout,
   deleteWorkout,
   updateWorkoutName,
-  removeExerciseFromWorkout
+  removeExerciseFromWorkout,
+  findGymPartners,
+  GymPartner
 } from '../../services/workoutService';
 import { getMuscleGroups } from '../../services/exercisesService';
 import { GestureHandlerRootView, Swipeable, TouchableWithoutFeedback } from 'react-native-gesture-handler';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebase/config';
 
 const DAYS_OF_WEEK = [
   'Monday',
@@ -58,6 +63,11 @@ const DAYS_OF_WEEK = [
 // Define error color for the app
 const ERROR_COLOR = '#FF5252';
 
+// Helper function to safely get color scheme
+const getColorScheme = (scheme: string | null | undefined): 'light' | 'dark' => {
+  return (scheme === 'dark') ? 'dark' : 'light';
+};
+
 // Separate component for swipeable workout card to fix the hooks error
 const SwipeableWorkoutCard = ({ workout, onDelete, onSelect }: { 
   workout: Workout; 
@@ -65,7 +75,7 @@ const SwipeableWorkoutCard = ({ workout, onDelete, onSelect }: {
   onSelect: (workout: Workout) => void;
 }) => {
   const swipeableRef = useRef<Swipeable>(null);
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() || 'light';
   const [menuVisible, setMenuVisible] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   
@@ -121,7 +131,7 @@ const SwipeableWorkoutCard = ({ workout, onDelete, onSelect }: {
               }}
               anchor={
                 <IconButton
-                  icon="ellipsis-vertical"
+                  icon="ellipsis-horizontal-outline"
                   onPress={() => {
                     setEditingWorkout(workout);
                     setMenuVisible(true);
@@ -165,19 +175,19 @@ const SwipeableWorkoutCard = ({ workout, onDelete, onSelect }: {
               <Ionicons 
                 name="barbell-outline" 
                 size={16} 
-                color={Colors[colorScheme ?? 'light'].mutedText} 
+                color={Colors[colorScheme].mutedText} 
               />
               <Text 
                 style={{ 
                   marginLeft: 4, 
-                  color: Colors[colorScheme ?? 'light'].mutedText 
+                  color: Colors[colorScheme].mutedText 
                 }}
               >
                 {workout.exercises.length} exercises
               </Text>
             </View>
             {workout.updatedAt && (
-              <Text style={{ color: Colors[colorScheme ?? 'light'].mutedText, fontSize: 12 }}>
+              <Text style={{ color: Colors[colorScheme].mutedText, fontSize: 12 }}>
                 Last updated: {workout.updatedAt.seconds ? new Date(workout.updatedAt.seconds * 1000).toLocaleDateString() : 'Recently'}
               </Text>
             )}
@@ -188,14 +198,14 @@ const SwipeableWorkoutCard = ({ workout, onDelete, onSelect }: {
               {workout.exercises.slice(0, 2).map((exercise, index) => (
                 <Text 
                   key={index} 
-                  style={{ color: Colors[colorScheme ?? 'light'].text }}
+                  style={{ color: Colors[colorScheme].text }}
                   numberOfLines={1}
                 >
                   • {exercise.name}
                 </Text>
               ))}
               {workout.exercises.length > 2 && (
-                <Text style={{ color: Colors[colorScheme ?? 'light'].mutedText }}>
+                <Text style={{ color: Colors[colorScheme].mutedText }}>
                   + {workout.exercises.length - 2} more
                 </Text>
               )}
@@ -209,9 +219,11 @@ const SwipeableWorkoutCard = ({ workout, onDelete, onSelect }: {
 
 export default function WorkoutsScreen() {
   const router = useRouter();
-  const { refreshWorkouts, selectedWorkoutId } = useLocalSearchParams<{ 
+  const { refreshWorkouts, selectedWorkoutId, createForDay, showWorkoutDialog } = useLocalSearchParams<{ 
     refreshWorkouts: string;
     selectedWorkoutId: string;
+    createForDay: string;
+    showWorkoutDialog: string;
   }>();
   const { user } = useContext(AuthContext) as { user: { uid: string, email?: string } | null };
   const [workouts, setWorkouts] = useState<Workout[]>([]);
@@ -230,6 +242,11 @@ export default function WorkoutsScreen() {
   const slideAnimation = useRef(new Animated.Value(0)).current;
   const [directNavigation, setDirectNavigation] = useState(true);
   
+  // Add states for gym partners
+  const [gymPartners, setGymPartners] = useState<GymPartner[]>([]);
+  const [gymPartnersDialogVisible, setGymPartnersDialogVisible] = useState(false);
+  const [loadingGymPartners, setLoadingGymPartners] = useState(false);
+
   // Get all available muscle groups
   const muscleGroups = getMuscleGroups();
 
@@ -339,6 +356,19 @@ export default function WorkoutsScreen() {
       }
     }
   }, [selectedWorkoutId, workouts]);
+
+  // Handle createForDay and showWorkoutDialog parameters
+  useEffect(() => {
+    if (createForDay) {
+      // Set the selected day to the one specified in the URL
+      setSelectedDay(createForDay);
+    }
+    
+    if (showWorkoutDialog === 'true') {
+      // Open the workout creation dialog
+      showWorkoutCreationDialog();
+    }
+  }, [createForDay, showWorkoutDialog]);
 
   const fetchWorkouts = async () => {
     if (!user) return;
@@ -556,6 +586,7 @@ export default function WorkoutsScreen() {
 
   const renderExerciseItem = (exercise: SavedExercise, index: number, workoutId: string) => {
     const typeStyle = getExerciseTypeStyle(exercise.type);
+    const currentColorScheme = colorScheme ?? 'light';
     
     return (
       <Card style={styles.exerciseCard} key={`${exercise.name}-${index}`}>
@@ -565,7 +596,7 @@ export default function WorkoutsScreen() {
               <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
                 {exercise.name}
               </Text>
-              <Text variant="bodyMedium" style={{ color: Colors[colorScheme ?? 'light'].mutedText }}>
+              <Text variant="bodyMedium" style={{ color: Colors[currentColorScheme].mutedText }}>
                 {capitalizeFirstLetter(exercise.muscle)}
               </Text>
             </View>
@@ -581,11 +612,11 @@ export default function WorkoutsScreen() {
           
           <View style={styles.exerciseDetails}>
             <View style={styles.exerciseDetail}>
-              <Ionicons name="repeat-outline" size={16} color={Colors[colorScheme ?? 'light'].mutedText} />
+              <Ionicons name="repeat-outline" size={16} color={Colors[currentColorScheme].mutedText} />
               <Text style={{ marginLeft: 4 }}>{exercise.sets || 3} sets</Text>
             </View>
             <View style={styles.exerciseDetail}>
-              <Ionicons name="fitness-outline" size={16} color={Colors[colorScheme ?? 'light'].mutedText} />
+              <Ionicons name="fitness-outline" size={16} color={Colors[currentColorScheme].mutedText} />
               <Text style={{ marginLeft: 4 }}>{exercise.reps || 10} reps</Text>
             </View>
             <Chip 
@@ -613,6 +644,194 @@ export default function WorkoutsScreen() {
         onSelect={setSelectedWorkout}
       />
     );
+  };
+
+  // Add function to find gym partners
+  const handleFindGymPartners = async () => {
+    if (!selectedWorkout || !user) return;
+    
+    try {
+      setLoadingGymPartners(true);
+      
+      // Get the primary muscle groups from the selected workout
+      const workoutMuscles = new Set(
+        selectedWorkout.exercises
+          .map(ex => ex.muscle?.toLowerCase().trim())
+          .filter(Boolean)
+      );
+      
+      // If no muscles found, use the workout name to infer muscle group
+      if (workoutMuscles.size === 0) {
+        const workoutNameLower = selectedWorkout.name.toLowerCase();
+        const commonMuscleKeywords: Record<string, string> = {
+          'chest': 'chest',
+          'pec': 'chest',
+          'bench': 'chest',
+          'arm': 'biceps',
+          'bicep': 'biceps',
+          'tricep': 'triceps',
+          'leg': 'quadriceps',
+          'quad': 'quadriceps',
+          'thigh': 'quadriceps',
+          'hamstring': 'hamstrings',
+          'back': 'lats',
+          'lat': 'lats',
+          'shoulder': 'shoulders',
+          'delt': 'shoulders',
+          'abdominal': 'abdominals',
+          'ab': 'abdominals',
+          'core': 'abdominals',
+          'glute': 'glutes',
+        };
+        
+        for (const [keyword, muscle] of Object.entries(commonMuscleKeywords)) {
+          if (workoutNameLower.includes(keyword)) {
+            workoutMuscles.add(muscle);
+          }
+        }
+      }
+      
+      // Get all workouts from other users, regardless of day
+      const allWorkoutsData = await getUserWorkouts(user.uid, true);
+      const otherUsersWorkouts = allWorkoutsData.filter(w => w.userId !== user.uid);
+      
+      // Find potential partners whose workouts target similar muscles
+      const potentialPartners = new Map<string, GymPartner>();
+      
+      for (const workout of otherUsersWorkouts) {
+        // Extract muscles from this workout's exercises
+        const workoutExerciseMuscles = new Set(
+          workout.exercises
+            .map(ex => ex.muscle?.toLowerCase().trim())
+            .filter(Boolean)
+        );
+        
+        // Check if there's any overlap in muscles
+        const hasOverlap = Array.from(workoutMuscles).some(muscle => 
+          workoutExerciseMuscles.has(muscle)
+        );
+        
+        if (hasOverlap) {
+          // Get user info for this workout
+          try {
+            const userDoc = await getDoc(doc(db, 'users', workout.userId));
+            
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
+              
+              // Create or update partner entry
+              if (!potentialPartners.has(workout.userId)) {
+                potentialPartners.set(workout.userId, {
+                  userId: workout.userId,
+                  fullName: userData.fullName || 'Anonymous User',
+                  photoURL: userData.photoURL,
+                  workoutId: workout.id || '',
+                  workoutName: workout.name,
+                  day: workout.day || 'Unknown',
+                });
+              }
+            }
+          } catch (error) {
+            console.error('Error getting user data:', error);
+          }
+        }
+      }
+      
+      // Get final list of partners
+      const partners = Array.from(potentialPartners.values());
+      
+      // For each partner, fetch their workout details to compare exercises
+      const partnersWithExercises = await Promise.all(
+        partners.map(async (partner) => {
+          try {
+            // Get the workout document
+            const workoutRef = doc(db, 'workouts', partner.workoutId);
+            const workoutDoc = await getDoc(workoutRef);
+            
+            if (workoutDoc.exists()) {
+              const partnerWorkout = { id: workoutDoc.id, ...workoutDoc.data() } as Workout;
+              
+              // Extract exercise names and muscles for comparison
+              const myExercises = selectedWorkout.exercises.map(ex => ({
+                name: ex.name.toLowerCase().trim(),
+                muscle: ex.muscle?.toLowerCase().trim()
+              }));
+              
+              const partnerExercises = partnerWorkout.exercises.map(ex => ({
+                name: ex.name.toLowerCase().trim(),
+                muscle: ex.muscle?.toLowerCase().trim()
+              }));
+              
+              // Find exercises with matching muscles
+              const allExercises = [];
+              
+              // First add my exercises
+              for (const myExercise of myExercises) {
+                // Check if partner has the same exercise
+                const matchingPartnerExercise = partnerExercises.find(
+                  pe => pe.name === myExercise.name
+                );
+                
+                if (matchingPartnerExercise) {
+                  // Shared exercise
+                  allExercises.push({
+                    name: myExercise.name,
+                    muscle: myExercise.muscle,
+                    status: 'shared',
+                    tags: ['You', 'Partner']
+                  });
+                } else {
+                  // My unique exercise
+                  allExercises.push({
+                    name: myExercise.name,
+                    muscle: myExercise.muscle,
+                    status: 'different',
+                    tags: ['You']
+                  });
+                }
+              }
+              
+              // Add partner's unique exercises
+              for (const partnerExercise of partnerExercises) {
+                // Skip if we already added this as a shared exercise
+                if (!myExercises.some(me => me.name === partnerExercise.name)) {
+                  allExercises.push({
+                    name: partnerExercise.name,
+                    muscle: partnerExercise.muscle,
+                    status: 'different',
+                    tags: ['Partner']
+                  });
+                }
+              }
+              
+              return {
+                ...partner,
+                allExercises
+              };
+            }
+            
+            return {
+              ...partner,
+              allExercises: []
+            };
+          } catch (error) {
+            console.error('Error fetching partner workout:', error);
+            return {
+              ...partner,
+              allExercises: []
+            };
+          }
+        })
+      );
+      
+      setGymPartners(partnersWithExercises);
+      setGymPartnersDialogVisible(true);
+    } catch (error) {
+      console.error('Error finding gym partners:', error);
+      Alert.alert('Error', 'Failed to find gym partners. Please try again.');
+    } finally {
+      setLoadingGymPartners(false);
+    }
   };
 
   return (
@@ -758,7 +977,7 @@ export default function WorkoutsScreen() {
           >
             <View style={styles.detailsHeader}>
               <IconButton
-                icon="arrow-back"
+                icon="arrow-back-outline"
                 size={24}
                 onPress={() => setSelectedWorkout(null)}
                 iconColor={Colors[colorScheme ?? 'light'].text}
@@ -767,7 +986,15 @@ export default function WorkoutsScreen() {
               <Text variant="headlineSmall" style={{ fontWeight: 'bold' }}>
                 {selectedWorkout.name}
               </Text>
-              <View style={{ width: 40 }} />
+              <IconButton
+                icon="people-outline"
+                size={24}
+                onPress={handleFindGymPartners}
+                iconColor={Colors[colorScheme ?? 'light'].tint}
+                style={{ backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }}
+                loading={loadingGymPartners}
+                disabled={loadingGymPartners}
+              />
             </View>
             
             <Divider />
@@ -837,50 +1064,33 @@ export default function WorkoutsScreen() {
                   }
                 }
                 
-                // Second try: Use common workout terminology to infer muscle group
+                // Second try: Extract from workout name based on common patterns
                 if (!muscleToFilter) {
-                  const muscleKeywords = {
+                  const commonMuscleKeywords: Record<string, string> = {
                     'chest': 'chest',
                     'pec': 'chest',
                     'bench': 'chest',
-                    'push': 'chest',
-                    
-                    'back': 'lats',
-                    'pull': 'lats',
-                    'lat': 'lats',
-                    'row': 'lats',
-                    
-                    'shoulder': 'shoulders',
-                    'delt': 'shoulders',
-                    'press': 'shoulders',
-                    'military': 'shoulders',
-                    
-                    'leg': 'quadriceps',
-                    'quad': 'quadriceps',
-                    'squat': 'quadriceps',
-                    'thigh': 'quadriceps',
-                    
-                    'ham': 'hamstrings',
-                    'glute': 'glutes',
-                    
                     'arm': 'biceps',
                     'bicep': 'biceps',
-                    'curl': 'biceps',
-                    
-                    'tri': 'triceps',
-                    'extension': 'triceps',
-                    'pushdown': 'triceps',
-                    
+                    'tricep': 'triceps',
+                    'leg': 'quadriceps',
+                    'quad': 'quadriceps',
+                    'thigh': 'quadriceps',
+                    'hamstring': 'hamstrings',
+                    'back': 'lats',
+                    'lat': 'lats',
+                    'shoulder': 'shoulders',
+                    'delt': 'shoulders',
+                    'abdominal': 'abdominals',
                     'ab': 'abdominals',
                     'core': 'abdominals',
-                    'crunch': 'abdominals',
-                    'situp': 'abdominals'
+                    'glute': 'glutes',
                   };
                   
-                  for (const [keyword, muscle] of Object.entries(muscleKeywords)) {
+                  for (const [keyword, muscle] of Object.entries(commonMuscleKeywords)) {
                     if (workoutNameLower.includes(keyword)) {
                       muscleToFilter = muscle;
-                      console.log(`Inferred muscle '${muscle}' from keyword '${keyword}'`);
+                      console.log(`Matched muscle '${muscle}' from keyword '${keyword}'`);
                       break;
                     }
                   }
@@ -916,6 +1126,7 @@ export default function WorkoutsScreen() {
                 // Generate a unique timestamp for the key
                 const uniqueTimestamp = Date.now().toString();
                 console.log(`Navigating with unique key: ${uniqueTimestamp}`);
+                console.log(`Selected workout ID: ${selectedWorkout.id}`);
                 
                 // Navigate to exercises tab with muscle filter
                 router.push({
@@ -1000,6 +1211,135 @@ export default function WorkoutsScreen() {
             <Dialog.Actions>
               <Button onPress={() => setEditingWorkout(null)}>Cancel</Button>
               <Button onPress={handleUpdateWorkoutName}>Save</Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+        
+        {/* Gym Partners Dialog */}
+        <Portal>
+          <Dialog 
+            visible={gymPartnersDialogVisible} 
+            onDismiss={() => setGymPartnersDialogVisible(false)}
+            style={{ backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].cardBackground }}
+          >
+            <Dialog.Title>Muscle Buddies</Dialog.Title>
+            <Dialog.Content>
+              {gymPartners.length === 0 ? (
+                <View style={{ alignItems: 'center', padding: 20 }}>
+                  <Ionicons 
+                    name="people-outline" 
+                    size={48} 
+                    color={Colors[colorScheme === 'dark' ? 'dark' : 'light'].mutedText}
+                  />
+                  <Text style={{ 
+                    textAlign: 'center', 
+                    marginTop: 16,
+                    color: Colors[colorScheme === 'dark' ? 'dark' : 'light'].text 
+                  }}>
+                    No gym partners found working on similar muscle groups.
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView style={{ maxHeight: 400 }}>
+                  {gymPartners.map((partner: any, index) => (
+                    <Card key={partner.userId} style={{ marginBottom: 16 }}>
+                      <Card.Content>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                          <Avatar.Text 
+                            size={40} 
+                            label={partner.fullName.substring(0, 2).toUpperCase()}
+                            color="white"
+                            style={{ marginRight: 12, backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].tint }}
+                          />
+                          <View>
+                            <Text variant="titleMedium">{partner.fullName}</Text>
+                            <Text variant="bodySmall" style={{ color: Colors[colorScheme === 'dark' ? 'dark' : 'light'].mutedText }}>
+                              Workout: {partner.workoutName} ({partner.day})
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Divider style={{ marginVertical: 8 }} />
+                        
+                        <Text style={{ fontWeight: 'bold', marginVertical: 8 }}>
+                          Exercise Comparison:
+                        </Text>
+                        
+                        {partner.allExercises?.length > 0 ? (
+                          <View style={styles.exerciseComparisonContainer}>
+                            {/* Sort exercises: shared first, then different */}
+                            {[...partner.allExercises]
+                              .sort((a, b) => {
+                                if (a.status === b.status) {
+                                  return a.name.localeCompare(b.name);
+                                }
+                                return a.status === 'shared' ? -1 : 1;
+                              })
+                              .map((exercise, idx) => (
+                                <View 
+                                  key={idx} 
+                                  style={[
+                                    styles.exerciseSimpleRow,
+                                    { backgroundColor: exercise.status === 'shared' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)' }
+                                  ]}
+                                >
+                                  <View style={{flex: 1}}>
+                                    <Text 
+                                      style={[
+                                        styles.exerciseSimpleName,
+                                        { 
+                                          color: exercise.status === 'shared' ? '#4CAF50' : '#F44336',
+                                          fontWeight: '500',
+                                          marginBottom: 4
+                                        }
+                                      ]}
+                                    >
+                                      {exercise.name.charAt(0).toUpperCase() + exercise.name.slice(1)}
+                                    </Text>
+                                    {exercise.muscle && (
+                                      <Text style={{fontSize: 12, color: Colors[colorScheme === 'dark' ? 'dark' : 'light'].mutedText}}>
+                                        {capitalizeFirstLetter(exercise.muscle)}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  <View style={styles.tagsContainer}>
+                                    {exercise.tags.map((tag: string, tagIdx: number) => (
+                                      <Chip
+                                        key={tagIdx}
+                                        style={{ 
+                                          marginLeft: 4,
+                                          backgroundColor: tag === 'You' 
+                                            ? 'rgba(33, 150, 243, 0.1)' 
+                                            : 'rgba(156, 39, 176, 0.1)',
+                                          height: 24
+                                        }}
+                                        textStyle={{ 
+                                          fontSize: 10,
+                                          color: tag === 'You' ? '#2196F3' : '#9C27B0'
+                                        }}
+                                        compact
+                                      >
+                                        {tag}
+                                      </Chip>
+                                    ))}
+                                  </View>
+                                </View>
+                              ))
+                            }
+                          </View>
+                        ) : (
+                          <Text style={{ fontStyle: 'italic', textAlign: 'center', marginTop: 10 }}>
+                            Could not compare exercises
+                          </Text>
+                        )}
+                      </Card.Content>
+                    </Card>
+                  ))}
+                </ScrollView>
+              )}
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setGymPartnersDialogVisible(false)}>Close</Button>
             </Dialog.Actions>
           </Dialog>
         </Portal>
@@ -1149,8 +1489,62 @@ const styles = StyleSheet.create({
   },
   addExerciseButton: {
     position: 'absolute',
-    bottom: 20,
-    right: 20,
-    borderRadius: 20,
+    bottom: 16,
+    right: 16,
+    borderRadius: 8,
+  },
+  // Add new styles for exercise comparison
+  exerciseComparisonContainer: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  exerciseSimpleRow: {
+    flexDirection: 'row',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+    alignItems: 'center',
+  },
+  exerciseSimpleName: {
+    flex: 1,
+    paddingLeft: 5,
+    fontSize: 15,
+  },
+  exerciseComparisonHeader: {
+    flexDirection: 'row',
+    padding: 8,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  exerciseComparisonColumnHeader: {
+    fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'center',
+  },
+  exerciseComparisonRow: {
+    flexDirection: 'row',
+    padding: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+    alignItems: 'center',
+  },
+  exerciseComparisonName: {
+    flex: 2,
+    paddingLeft: 5,
+  },
+  exerciseComparisonCheck: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
   },
 }); 
