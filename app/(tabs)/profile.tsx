@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { StyleSheet, View, TouchableOpacity, Image, ScrollView, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Image, ScrollView, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { AuthContext } from '../_layout';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
+import { signOut, getAuth } from 'firebase/auth';
 import { auth, db } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { Text, Button, Dialog, Portal, Card, ProgressBar, Divider } from 'react-native-paper';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Define the user type for TypeScript
 type User = {
@@ -28,7 +29,10 @@ interface EditedData {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user } = useContext(AuthContext) as { user: User | null };
+  const { user, logout } = useContext(AuthContext) as { 
+    user: User | null;
+    logout: () => Promise<void>;
+  };
   const [userData, setUserData] = useState({
     fullName: '',
     photoURL: '',
@@ -67,49 +71,6 @@ export default function ProfileScreen() {
     fetchUserData();
   }, [user]);
 
-  const handleLogout = () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to quit the app?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Yes, Logout", 
-          style: "destructive",
-          onPress: () => {
-            // Forcefully redirect to login page first
-            try {
-              // More direct approach - force navigate first
-              router.replace('/auth/login');
-              
-              // Then attempt to sign out Firebase in the background after a delay
-              setTimeout(() => {
-                try {
-                  signOut(auth);
-                  console.log("User signed out successfully");
-                } catch (signOutError) {
-                  console.error("Error in sign out:", signOutError);
-                }
-              }, 500);
-            } catch (error) {
-              console.error("Navigation error:", error);
-              
-              // If router fails, try direct navigation
-              signOut(auth).then(() => {
-                if (typeof window !== 'undefined') {
-                  window.location.href = '/auth/login';
-                }
-              });
-            }
-          }
-        }
-      ]
-    );
-  };
-  
   const calculateBMI = () => {
     if (userData.weight && userData.height) {
       const weightKg = parseFloat(userData.weight);
@@ -176,13 +137,6 @@ export default function ProfileScreen() {
           <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
             Profile
           </Text>
-          <TouchableOpacity 
-            style={[styles.logoutButton, { borderColor: borderColor }]}
-            onPress={handleLogout}
-          >
-            <Ionicons name="log-out-outline" size={20} color={Colors[colorScheme ?? 'light'].text} />
-            <Text style={[styles.logoutText, { color: Colors[colorScheme ?? 'light'].text }]}>Logout</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={styles.profileSection}>
@@ -337,6 +291,44 @@ export default function ProfileScreen() {
             </Text>
             <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].mutedText} />
           </TouchableOpacity>
+          
+          {/* Debug button to navigate to signup for testing */}
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}
+            onPress={() => router.push('/auth/signup')}
+          >
+            <Ionicons name="person-add-outline" size={22} color={Colors[colorScheme ?? 'light'].text} />
+            <Text style={[styles.menuItemText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              Go to Signup (Debug)
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].mutedText} />
+          </TouchableOpacity>
+          
+          {/* Remove the first logout button and replace with this */}
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: '#FF3B30', marginTop: 16 }]}
+            onPress={() => {
+              // Most direct method possible - no alerts, no promises, just immediate execution
+              try {
+                // Clear storage
+                AsyncStorage.removeItem('authToken');
+                
+                // Direct Firebase logout
+                auth.signOut();
+                
+                // Immediate navigation
+                router.replace('/auth/login');
+              } catch (e) {
+                console.error(e);
+              }
+            }}
+          >
+            <Ionicons name="log-out-outline" size={22} color="white" />
+            <Text style={[styles.menuItemText, { color: "white" }]}>
+              Logout
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
         </View>
       </ScrollView>
       
@@ -398,18 +390,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  logoutText: {
-    marginLeft: 4,
-    fontWeight: '500',
   },
   profileSection: {
     alignItems: 'center',
