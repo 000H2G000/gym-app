@@ -408,13 +408,14 @@ export default function ExercisesScreen() {
     // Determine which workout ID to use
     // 1. If we navigated here directly from the workouts tab with a specific workoutId, use that
     // 2. Otherwise, use the workout the user selected in the dialog
-    const targetWorkoutId = workoutId && !workoutDialogVisible ? workoutId : selectedWorkoutId;
+    const targetWorkoutId = workoutId || selectedWorkoutId;
     
     if (!selectedExercise || !targetWorkoutId || !user) {
       Alert.alert("Error", "Please select a workout to add this exercise to.");
       return;
     }
 
+    console.log(`Adding exercise to workout - Target Workout ID: ${targetWorkoutId}, Original Workout ID from params: ${workoutId}`);
     setAddingExercise(true);
     
     try {
@@ -422,7 +423,7 @@ export default function ExercisesScreen() {
       const reps = parseInt(repsInput, 10) || 10;
       
       // Add the exercise to the server first
-      console.log(`Adding exercise ${selectedExercise.name} to workout ${targetWorkoutId} (from URL: ${workoutId === targetWorkoutId ? 'yes' : 'no'})`);
+      console.log(`Adding exercise ${selectedExercise.name} to workout ${targetWorkoutId} (from URL: ${workoutId ? 'yes' : 'no'})`);
       await addExerciseToWorkout(
         targetWorkoutId, 
         selectedExercise,

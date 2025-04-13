@@ -225,6 +225,12 @@ export interface GymPartner {
   workoutId: string;
   workoutName: string;
   day: string;
+  allExercises?: Array<{
+    name: string;
+    muscle?: string;
+    status: 'shared' | 'different' | string;
+    tags: string[];
+  }>;
 }
 
 export const findGymPartners = async (workout: Workout, currentUserId: string): Promise<GymPartner[]> => {

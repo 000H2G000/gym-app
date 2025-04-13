@@ -49,6 +49,8 @@ import { getMuscleGroups } from '../../services/exercisesService';
 import { GestureHandlerRootView, Swipeable, TouchableWithoutFeedback } from 'react-native-gesture-handler';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
+import { sendPartnerRequest } from '../../services/notificationService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const DAYS_OF_WEEK = [
   'Monday',
@@ -247,6 +249,12 @@ export default function WorkoutsScreen() {
   const [gymPartnersDialogVisible, setGymPartnersDialogVisible] = useState(false);
   const [loadingGymPartners, setLoadingGymPartners] = useState(false);
 
+  // Add a new state for tracking sending status
+  const [sendingRequestToUserId, setSendingRequestToUserId] = useState<string | null>(null);
+
+  // Add a state to track partner IDs for which requests have been sent
+  const [sentPartnerRequests, setSentPartnerRequests] = useState<string[]>([]);
+
   // Get all available muscle groups
   const muscleGroups = getMuscleGroups();
 
@@ -369,6 +377,44 @@ export default function WorkoutsScreen() {
       showWorkoutCreationDialog();
     }
   }, [createForDay, showWorkoutDialog]);
+
+  // Load sent partner requests from AsyncStorage
+  useEffect(() => {
+    const loadSentRequests = async () => {
+      try {
+        if (user) {
+          const savedRequests = await AsyncStorage.getItem(`sent_partner_requests_${user.uid}`);
+          if (savedRequests) {
+            setSentPartnerRequests(JSON.parse(savedRequests));
+            console.log('Loaded sent partner requests from storage');
+          }
+        }
+      } catch (error) {
+        console.error('Error loading sent partner requests:', error);
+      }
+    };
+    
+    loadSentRequests();
+  }, [user]);
+
+  // Save sent partner requests to AsyncStorage whenever it changes
+  useEffect(() => {
+    const saveSentRequests = async () => {
+      try {
+        if (user && sentPartnerRequests.length > 0) {
+          await AsyncStorage.setItem(
+            `sent_partner_requests_${user.uid}`, 
+            JSON.stringify(sentPartnerRequests)
+          );
+          console.log('Saved sent partner requests to storage');
+        }
+      } catch (error) {
+        console.error('Error saving sent partner requests:', error);
+      }
+    };
+    
+    saveSentRequests();
+  }, [sentPartnerRequests, user]);
 
   const fetchWorkouts = async () => {
     if (!user) return;
@@ -834,6 +880,49 @@ export default function WorkoutsScreen() {
     }
   };
 
+  const handleSendPartnerRequest = async (partner: GymPartner) => {
+    if (!user || !selectedWorkout) return;
+    
+    try {
+      console.log(`Sending partner request to ${partner.fullName} (${partner.userId})`);
+      console.log(`From workout: ${selectedWorkout.name} (${selectedWorkout.id}) - Day: ${selectedWorkout.day}`);
+      
+      setSendingRequestToUserId(partner.userId);
+      
+      // Ensure workout ID is defined
+      if (!selectedWorkout.id) {
+        console.error('Cannot send partner request: workoutId is undefined');
+        Alert.alert('Error', 'Could not identify the workout. Please try again.');
+        return;
+      }
+      
+      // Send the partner request
+      const notificationId = await sendPartnerRequest(
+        user.uid,
+        partner.userId,
+        selectedWorkout.id,
+        selectedWorkout.name,
+        selectedWorkout.day || 'Monday'
+      );
+      
+      console.log(`Partner request sent successfully, notification ID: ${notificationId}`);
+      
+      // Add this partner ID to the list of sent requests
+      setSentPartnerRequests(prev => [...prev, partner.userId]);
+      
+      // Show success message
+      Alert.alert(
+        'Request Sent',
+        `Your partner request was sent to ${partner.fullName}`
+      );
+    } catch (error) {
+      console.error('Error sending partner request:', error);
+      Alert.alert('Error', 'Failed to send partner request. Please try again.');
+    } finally {
+      setSendingRequestToUserId(null);
+    }
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -1244,21 +1333,32 @@ export default function WorkoutsScreen() {
                   {gymPartners.map((partner: any, index) => (
                     <Card key={partner.userId} style={{ marginBottom: 16 }}>
                       <Card.Content>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                          <Avatar.Text 
-                            size={40} 
-                            label={partner.fullName.substring(0, 2).toUpperCase()}
-                            color="white"
-                            style={{ marginRight: 12, backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].tint }}
-                          />
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <View>
-                            <Text variant="titleMedium">{partner.fullName}</Text>
-                            <Text variant="bodySmall" style={{ color: Colors[colorScheme === 'dark' ? 'dark' : 'light'].mutedText }}>
-                              Workout: {partner.workoutName} ({partner.day})
+                            <Text style={{ fontSize: 16, fontWeight: 'bold' }}>
+                              {partner.fullName}
+                            </Text>
+                            <Text style={{ fontSize: 14, marginTop: 4 }}>
+                              {partner.workoutName} ({partner.day})
                             </Text>
                           </View>
+                          <Button
+                            mode="contained"
+                            onPress={() => handleSendPartnerRequest(partner)}
+                            loading={sendingRequestToUserId === partner.userId}
+                            disabled={sendingRequestToUserId !== null || sentPartnerRequests.includes(partner.userId)}
+                            icon={sentPartnerRequests.includes(partner.userId) ? "check" : "handshake"}
+                            style={{ 
+                              borderRadius: 20,
+                              backgroundColor: sentPartnerRequests.includes(partner.userId) ? '#8BC34A' : undefined
+                            }}
+                            contentStyle={{ height: 36 }}
+                            labelStyle={{ fontSize: 12 }}
+                          >
+                            {sentPartnerRequests.includes(partner.userId) ? "Request Sent" : "Match"}
+                          </Button>
                         </View>
-
+                        
                         <Divider style={{ marginVertical: 8 }} />
                         
                         <Text style={{ fontWeight: 'bold', marginVertical: 8 }}>
