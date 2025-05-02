@@ -133,7 +133,7 @@ const SwipeableWorkoutCard = ({ workout, onDelete, onSelect }: {
               }}
               anchor={
                 <IconButton
-                  icon="ellipsis-horizontal-outline"
+                  icon="dots-horizontal"
                   onPress={() => {
                     setEditingWorkout(workout);
                     setMenuVisible(true);
@@ -647,7 +647,7 @@ export default function WorkoutsScreen() {
               </Text>
             </View>
             <IconButton
-              icon="trash-outline"
+              icon="trash"
               iconColor={ERROR_COLOR}
               size={20}
               onPress={() => handleRemoveExercise(workoutId, index)}
@@ -1066,7 +1066,7 @@ export default function WorkoutsScreen() {
           >
             <View style={styles.detailsHeader}>
               <IconButton
-                icon="arrow-back-outline"
+                icon="arrow-left"
                 size={24}
                 onPress={() => setSelectedWorkout(null)}
                 iconColor={Colors[colorScheme ?? 'light'].text}
@@ -1076,7 +1076,7 @@ export default function WorkoutsScreen() {
                 {selectedWorkout.name}
               </Text>
               <IconButton
-                icon="people-outline"
+                icon="account-group"
                 size={24}
                 onPress={handleFindGymPartners}
                 iconColor={Colors[colorScheme ?? 'light'].tint}
@@ -1647,4 +1647,4 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
   },
-}); 
+});

@@ -33,6 +33,90 @@ export interface SavedExercise extends Exercise {
   addedAt?: any;
 }
 
+// Personal Records related interfaces and functions
+export interface PersonalRecord {
+  lift: string;
+  weight: number;
+  unit: 'kg' | 'lb';
+  date: string;
+  userId: string;
+}
+
+export interface UserWithRecords {
+  id: string;
+  name: string;
+  age?: number;
+  location?: string;
+  bio?: string;
+  specialties?: string[];
+  profileImage?: string;
+  totalScore: number;
+  personalRecords: PersonalRecord[];
+}
+
+// Get all users with their personal records
+export const getUsersWithRecords = async (): Promise<UserWithRecords[]> => {
+  try {
+    // Get all users
+    const usersSnapshot = await getDocs(collection(db, 'users'));
+    const users: UserWithRecords[] = [];
+    
+    for (const userDoc of usersSnapshot.docs) {
+      const userData = userDoc.data();
+      
+      // Get personal records for this user
+      const recordsSnapshot = await getDocs(
+        query(collection(db, 'personalRecords'), where('userId', '==', userDoc.id))
+      );
+      
+      const personalRecords: PersonalRecord[] = [];
+      recordsSnapshot.forEach((recordDoc) => {
+        personalRecords.push(recordDoc.data() as PersonalRecord);
+      });
+      
+      // Calculate total score (sum of all personal records)
+      const totalScore = personalRecords.reduce((sum, record) => sum + record.weight, 0);
+      
+      users.push({
+        id: userDoc.id,
+        name: userData.fullName || userData.displayName || 'Anonymous User',
+        age: userData.age,
+        location: userData.location || 'Unknown',
+        bio: userData.bio || '',
+        specialties: userData.specialties || [],
+        profileImage: userData.photoURL || 'https://via.placeholder.com/150',
+        totalScore,
+        personalRecords
+      });
+    }
+    
+    // Sort by total score
+    return users.sort((a, b) => b.totalScore - a.totalScore);
+  } catch (error) {
+    console.error('Error getting users with records:', error);
+    throw error;
+  }
+};
+
+// Add a personal record for a user
+export const addPersonalRecord = async (
+  userId: string,
+  record: Omit<PersonalRecord, 'userId'>
+): Promise<string> => {
+  try {
+    const recordData: PersonalRecord = {
+      ...record,
+      userId
+    };
+    
+    const docRef = await addDoc(collection(db, 'personalRecords'), recordData);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding personal record:', error);
+    throw error;
+  }
+}
+
 // Local cache for workouts to improve performance and enable immediate UI updates
 let workoutsCache: Workout[] = [];
 
@@ -324,4 +408,4 @@ export const findGymPartners = async (workout: Workout, currentUserId: string): 
     console.error('Error finding gym partners:', error);
     throw error;
   }
-}; 
+};

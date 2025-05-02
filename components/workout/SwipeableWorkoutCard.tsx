@@ -41,7 +41,7 @@ const SwipeableWorkoutCard: React.FC<SwipeableWorkoutCardProps> = ({
           height: '100%'
         }}
       >
-        <Ionicons name="trash-outline" size={28} color="white" />
+        <Ionicons name="trash" size={28} color="white" />
       </View>
     );
   };
@@ -79,7 +79,7 @@ const SwipeableWorkoutCard: React.FC<SwipeableWorkoutCardProps> = ({
               }}
               anchor={
                 <IconButton
-                  icon="ellipsis-horizontal-outline"
+                  icon="dots-horizontal"
                   onPress={() => {
                     setEditingWorkout(workout);
                     setMenuVisible(true);
@@ -88,7 +88,7 @@ const SwipeableWorkoutCard: React.FC<SwipeableWorkoutCardProps> = ({
               }
             >
               <Menu.Item
-                leadingIcon="pencil-outline"
+                leadingIcon="pencil"
                 onPress={() => {
                   setMenuVisible(false);
                   setEditingWorkout(null);
@@ -97,7 +97,7 @@ const SwipeableWorkoutCard: React.FC<SwipeableWorkoutCardProps> = ({
                 title="Rename"
               />
               <Menu.Item
-                leadingIcon="trash-outline"
+                leadingIcon="trash-can"
                 onPress={() => {
                   setMenuVisible(false);
                   Alert.alert(
@@ -190,4 +190,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default SwipeableWorkoutCard; 
+export default SwipeableWorkoutCard;

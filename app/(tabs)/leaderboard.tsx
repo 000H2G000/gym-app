@@ -1,38 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, ScrollView, View, Text, Image, TouchableOpacity, TextInput, Modal } from 'react-native';
+import React, { useState, useEffect, useContext } from 'react';
+import { StyleSheet, ScrollView, View, Text, Image, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-
-interface PersonalRecord {
-  lift: string;
-  weight: number;
-  unit: 'kg' | 'lb';
-  date: string;
-}
-
-interface Lifter {
-  id: string;
-  name: string;
-  age: number;
-  location: string;
-  bio: string;
-  specialties: string[];
-  profileImage: string;
-  totalScore: number;
-  personalRecords: PersonalRecord[];
-}
+import { getUsersWithRecords, UserWithRecords, addPersonalRecord } from '../../services/workoutService';
+import { AuthContext } from '../_layout';
+import { Button, Dialog, Portal, TextInput as PaperTextInput } from 'react-native-paper';
 
 export default function LeaderboardScreen() {
-  const [lifters, setLifters] = useState<Lifter[]>([]);
-  const [filteredLifters, setFilteredLifters] = useState<Lifter[]>([]);
-  const [selectedLifter, setSelectedLifter] = useState<Lifter | null>(null);
+  const { user } = useContext(AuthContext);
+  const [lifters, setLifters] = useState<UserWithRecords[]>([]);
+  const [filteredLifters, setFilteredLifters] = useState<UserWithRecords[]>([]);
+  const [selectedLifter, setSelectedLifter] = useState<UserWithRecords | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLift, setFilterLift] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const colorScheme = useColorScheme();
-  
+
+  const [prDialogVisible, setPrDialogVisible] = useState(false);
+  const [newPR, setNewPR] = useState({
+    lift: 'Bench Press',
+    weight: '',
+    unit: 'lb' as 'kg' | 'lb',
+    date: new Date().toISOString().split('T')[0]
+  });
+
   const commonLifts = [
     'Bench Press',
     'Squat',
@@ -41,120 +36,39 @@ export default function LeaderboardScreen() {
     'Barbell Row'
   ];
 
-  // Mock lifters data with personal records
   useEffect(() => {
-    const mockLifters: Lifter[] = [
-      {
-        id: '1',
-        name: 'Alex Wilson',
-        age: 28,
-        location: 'Downtown',
-        bio: 'Competitive powerlifter focused on strength. Current state champion in my weight class.',
-        specialties: ['Powerlifting', 'Strength Training', 'Coaching'],
-        profileImage: 'https://images.unsplash.com/photo-1583468982228-19f19164aee2?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80',
-        totalScore: 1350,
-        personalRecords: [
-          { lift: 'Bench Press', weight: 315, unit: 'lb', date: '2023-10-12' },
-          { lift: 'Squat', weight: 455, unit: 'lb', date: '2023-09-05' },
-          { lift: 'Deadlift', weight: 585, unit: 'lb', date: '2023-11-20' },
-          { lift: 'Overhead Press', weight: 185, unit: 'lb', date: '2023-08-14' },
-          { lift: 'Barbell Row', weight: 275, unit: 'lb', date: '2023-07-30' }
-        ]
-      },
-      {
-        id: '2',
-        name: 'Jamie Chen',
-        age: 32,
-        location: 'Midtown',
-        bio: 'CrossFit athlete and former gymnast with focus on functional strength and mobility.',
-        specialties: ['CrossFit', 'Olympic Lifting', 'Gymnastics'],
-        profileImage: 'https://images.unsplash.com/photo-1594381898411-846e7d193883?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80',
-        totalScore: 1180,
-        personalRecords: [
-          { lift: 'Bench Press', weight: 225, unit: 'lb', date: '2023-10-05' },
-          { lift: 'Squat', weight: 365, unit: 'lb', date: '2023-09-12' },
-          { lift: 'Deadlift', weight: 405, unit: 'lb', date: '2023-11-10' },
-          { lift: 'Overhead Press', weight: 165, unit: 'lb', date: '2023-08-07' },
-          { lift: 'Barbell Row', weight: 235, unit: 'lb', date: '2023-07-24' }
-        ]
-      },
-      {
-        id: '3',
-        name: 'Taylor Morgan',
-        age: 25,
-        location: 'Uptown',
-        bio: 'Bodybuilding champion with a focus on aesthetics and symmetry. Preparing for nationals.',
-        specialties: ['Bodybuilding', 'Hypertrophy', 'Posing'],
-        profileImage: 'https://images.unsplash.com/photo-1534367507873-d2d7e24c797f?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80',
-        totalScore: 1420,
-        personalRecords: [
-          { lift: 'Bench Press', weight: 345, unit: 'lb', date: '2023-11-12' },
-          { lift: 'Squat', weight: 495, unit: 'lb', date: '2023-10-22' },
-          { lift: 'Deadlift', weight: 585, unit: 'lb', date: '2023-11-28' },
-          { lift: 'Overhead Press', weight: 205, unit: 'lb', date: '2023-09-14' },
-          { lift: 'Barbell Row', weight: 295, unit: 'lb', date: '2023-08-18' }
-        ]
-      },
-      {
-        id: '4',
-        name: 'Jordan Lee',
-        age: 29,
-        location: 'Eastside',
-        bio: 'Strongman competitor specializing in odd object lifts and endurance events.',
-        specialties: ['Strongman', 'Grip Strength', 'Carries'],
-        profileImage: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80',
-        totalScore: 1310,
-        personalRecords: [
-          { lift: 'Bench Press', weight: 275, unit: 'lb', date: '2023-10-18' },
-          { lift: 'Squat', weight: 435, unit: 'lb', date: '2023-09-25' },
-          { lift: 'Deadlift', weight: 605, unit: 'lb', date: '2023-11-15' },
-          { lift: 'Overhead Press', weight: 195, unit: 'lb', date: '2023-08-22' },
-          { lift: 'Barbell Row', weight: 255, unit: 'lb', date: '2023-07-19' }
-        ]
-      },
-      {
-        id: '5',
-        name: 'Casey Rivera',
-        age: 34,
-        location: 'Westside',
-        bio: 'Olympic weightlifter with competitive experience at national level. Focused on technique.',
-        specialties: ['Olympic Lifting', 'Clean & Jerk', 'Snatch'],
-        profileImage: 'https://images.unsplash.com/photo-1517630800677-932d836c22d7?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80',
-        totalScore: 1250,
-        personalRecords: [
-          { lift: 'Bench Press', weight: 255, unit: 'lb', date: '2023-10-28' },
-          { lift: 'Squat', weight: 425, unit: 'lb', date: '2023-09-18' },
-          { lift: 'Deadlift', weight: 485, unit: 'lb', date: '2023-11-05' },
-          { lift: 'Overhead Press', weight: 215, unit: 'lb', date: '2023-08-30' },
-          { lift: 'Barbell Row', weight: 245, unit: 'lb', date: '2023-07-12' }
-        ]
-      },
-    ];
-    
-    // Sort lifters by total score (descending)
-    const sortedLifters = [...mockLifters].sort((a, b) => b.totalScore - a.totalScore);
-    
-    setLifters(sortedLifters);
-    setFilteredLifters(sortedLifters);
+    fetchUsersWithRecords();
   }, []);
 
-  // Search and filter functionality
+  const fetchUsersWithRecords = async () => {
+    try {
+      setLoading(true);
+      const usersData = await getUsersWithRecords();
+      setLifters(usersData);
+      setFilteredLifters(usersData);
+    } catch (error) {
+      console.error('Error fetching users with records:', error);
+      Alert.alert('Error', 'Failed to load leaderboard data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     let filtered = [...lifters];
-    
-    // Apply text search if query exists
+
     if (searchQuery.trim() !== '') {
       filtered = filtered.filter(
         (lifter) =>
           lifter.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          lifter.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          lifter.specialties.some(specialty => 
+          (lifter.location && lifter.location.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (lifter.specialties && lifter.specialties.some(specialty =>
             specialty.toLowerCase().includes(searchQuery.toLowerCase())
-          )
+          ))
       );
     }
-    
-    // Apply lift filter if selected
+
     if (filterLift) {
       filtered = filtered.sort((a, b) => {
         const aRecord = a.personalRecords.find(record => record.lift === filterLift)?.weight || 0;
@@ -162,14 +76,13 @@ export default function LeaderboardScreen() {
         return bRecord - aRecord;
       });
     } else {
-      // Default sort by total score
       filtered = filtered.sort((a, b) => b.totalScore - a.totalScore);
     }
-    
+
     setFilteredLifters(filtered);
   }, [searchQuery, filterLift, lifters]);
 
-  const handleLifterPress = (lifter: Lifter) => {
+  const handleLifterPress = (lifter: UserWithRecords) => {
     setSelectedLifter(lifter);
   };
 
@@ -177,19 +90,71 @@ export default function LeaderboardScreen() {
     setSelectedLifter(null);
   };
 
+  const handleAddPersonalRecord = async () => {
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to add personal records');
+      return;
+    }
+
+    if (!newPR.weight || parseFloat(newPR.weight) <= 0) {
+      Alert.alert('Error', 'Please enter a valid weight');
+      return;
+    }
+
+    try {
+      await addPersonalRecord(user.uid, {
+        lift: newPR.lift,
+        weight: parseFloat(newPR.weight),
+        unit: newPR.unit,
+        date: newPR.date
+      });
+
+      setPrDialogVisible(false);
+
+      setNewPR({
+        lift: 'Bench Press',
+        weight: '',
+        unit: 'lb',
+        date: new Date().toISOString().split('T')[0]
+      });
+
+      fetchUsersWithRecords();
+      Alert.alert('Success', 'Personal record added successfully!');
+    } catch (error) {
+      console.error('Error adding personal record:', error);
+      Alert.alert('Error', 'Failed to add personal record');
+    }
+  };
+
   const getBadgeColor = (index: number) => {
-    switch(index) {
-      case 0: return '#FFD700'; // Gold
-      case 1: return '#C0C0C0'; // Silver
-      case 2: return '#CD7F32'; // Bronze
+    switch (index) {
+      case 0: return '#FFD700';
+      case 1: return '#C0C0C0';
+      case 2: return '#CD7F32';
       default: return Colors[colorScheme ?? 'light'].cardBackground;
     }
   };
 
+  const isCurrentUser = (lifter: UserWithRecords) => user && lifter.id === user.uid;
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
+          <Text style={{ marginTop: 12, color: Colors[colorScheme ?? 'light'].text }}>
+            Loading leaderboard...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-      
+
       <View style={styles.header}>
         <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
           Lifting Leaderboard
@@ -206,41 +171,41 @@ export default function LeaderboardScreen() {
             onChangeText={setSearchQuery}
           />
         </View>
-        
-        <ScrollView 
-          horizontal 
+
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterContainer}
         >
           <TouchableOpacity
             style={[
               styles.filterChip,
-              !filterLift && { 
+              !filterLift && {
                 backgroundColor: Colors[colorScheme ?? 'light'].tint,
               }
             ]}
             onPress={() => setFilterLift(null)}
           >
-            <Text style={{ 
+            <Text style={{
               color: !filterLift ? 'white' : Colors[colorScheme ?? 'light'].text,
               fontWeight: !filterLift ? 'bold' : 'normal'
             }}>
               Total
             </Text>
           </TouchableOpacity>
-          
+
           {commonLifts.map(lift => (
             <TouchableOpacity
               key={lift}
               style={[
                 styles.filterChip,
-                filterLift === lift && { 
+                filterLift === lift && {
                   backgroundColor: Colors[colorScheme ?? 'light'].tint,
                 }
               ]}
               onPress={() => setFilterLift(lift)}
             >
-              <Text style={{ 
+              <Text style={{
                 color: filterLift === lift ? 'white' : Colors[colorScheme ?? 'light'].text,
                 fontWeight: filterLift === lift ? 'bold' : 'normal'
               }}>
@@ -251,6 +216,19 @@ export default function LeaderboardScreen() {
         </ScrollView>
       </View>
 
+      {user && (
+        <View style={styles.addRecordContainer}>
+          <Button
+            mode="contained"
+            icon="plus"
+            onPress={() => setPrDialogVisible(true)}
+            style={{ borderRadius: 8 }}
+          >
+            Add Personal Record
+          </Button>
+        </View>
+      )}
+
       <View style={styles.tableHeader}>
         <Text style={[styles.rankHeader, { color: Colors[colorScheme ?? 'light'].text }]}>Rank</Text>
         <Text style={[styles.nameHeader, { color: Colors[colorScheme ?? 'light'].text }]}>Lifter</Text>
@@ -260,68 +238,105 @@ export default function LeaderboardScreen() {
       </View>
 
       <ScrollView style={styles.scrollView}>
-        {filteredLifters.map((lifter, index) => (
-          <TouchableOpacity
-            key={lifter.id}
-            style={[
-              styles.lifterRow,
-              { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
-            ]}
-            onPress={() => handleLifterPress(lifter)}
-          >
-            <View style={[styles.rankBadge, { backgroundColor: getBadgeColor(index) }]}>
-              <Text style={styles.rankText}>{index + 1}</Text>
-            </View>
-            
-            <View style={styles.lifterInfo}>
-              <Image source={{ uri: lifter.profileImage }} style={styles.lifterImage} />
-              <View>
-                <Text style={[styles.lifterName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {lifter.name}
-                </Text>
-                <Text style={[styles.lifterLocation, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
-                  {lifter.location}
-                </Text>
-                <View style={styles.specialtiesContainer}>
-                  {lifter.specialties.slice(0, 2).map((specialty, i) => (
-                    <View
-                      key={i}
-                      style={[
-                        styles.specialtyTag,
-                        { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }
-                      ]}
-                    >
-                      <Text style={[styles.specialtyText, { color: Colors[colorScheme ?? 'light'].tint }]}>
-                        {specialty}
-                      </Text>
-                    </View>
-                  ))}
-                  {lifter.specialties.length > 2 && (
-                    <View
-                      style={[
-                        styles.specialtyTag,
-                        { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }
-                      ]}
-                    >
-                      <Text style={[styles.specialtyText, { color: Colors[colorScheme ?? 'light'].tint }]}>
-                        +{lifter.specialties.length - 2}
-                      </Text>
-                    </View>
-                  )}
+        {filteredLifters.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="barbell-outline" size={64} color={Colors[colorScheme ?? 'light'].mutedText} />
+            <Text style={[styles.emptyText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              No lifters found
+            </Text>
+            <Text style={[styles.emptySubtext, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+              {user ? 'Be the first to add a personal record!' : 'Log in to add your personal records!'}
+            </Text>
+          </View>
+        ) : (
+          filteredLifters.map((lifter, index) => (
+            <TouchableOpacity
+              key={lifter.id}
+              style={[
+                styles.lifterRow,
+                { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground },
+                isCurrentUser(lifter) && styles.currentUserRow
+              ]}
+              onPress={() => handleLifterPress(lifter)}
+            >
+              <View style={[styles.rankBadge, { backgroundColor: getBadgeColor(index) }]}>
+                <Text style={styles.rankText}>{index + 1}</Text>
+              </View>
+
+              <View style={styles.lifterInfo}>
+                <Image
+                  source={{ uri: lifter.profileImage }}
+                  style={styles.lifterImage}
+                  onError={() => console.log('Error loading image for:', lifter.name)}
+                />
+                <View>
+                  <View style={styles.nameContainer}>
+                    <Text style={[styles.lifterName, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {lifter.name}
+                    </Text>
+                    {isCurrentUser(lifter) && (
+                      <View style={styles.currentUserBadge}>
+                        <Text style={styles.currentUserText}>You</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.lifterLocation, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+                    {lifter.location || 'Unknown location'}
+                  </Text>
+                  <View style={styles.specialtiesContainer}>
+                    {lifter.specialties && lifter.specialties.length > 0 ? (
+                      lifter.specialties.slice(0, 2).map((specialty, i) => (
+                        <View
+                          key={i}
+                          style={[
+                            styles.specialtyTag,
+                            { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }
+                          ]}
+                        >
+                          <Text style={[styles.specialtyText, { color: Colors[colorScheme ?? 'light'].tint }]}>
+                            {specialty}
+                          </Text>
+                        </View>
+                      ))
+                    ) : (
+                      <View
+                        style={[
+                          styles.specialtyTag,
+                          { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }
+                        ]}
+                      >
+                        <Text style={[styles.specialtyText, { color: Colors[colorScheme ?? 'light'].tint }]}>
+                          Gym Enthusiast
+                        </Text>
+                      </View>
+                    )}
+                    {lifter.specialties && lifter.specialties.length > 2 && (
+                      <View
+                        style={[
+                          styles.specialtyTag,
+                          { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }
+                        ]}
+                      >
+                        <Text style={[styles.specialtyText, { color: Colors[colorScheme ?? 'light'].tint }]}>
+                          +{lifter.specialties.length - 2}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
-            </View>
-            
-            <View style={styles.scoreContainer}>
-              <Text style={[styles.scoreText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {filterLift 
-                  ? `${lifter.personalRecords.find(record => record.lift === filterLift)?.weight || 0} ${lifter.personalRecords.find(record => record.lift === filterLift)?.unit || 'lb'}`
-                  : lifter.totalScore
-                }
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
+
+              <View style={styles.scoreContainer}>
+                <Text style={[styles.scoreText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {filterLift
+                    ? `${lifter.personalRecords.find(record => record.lift === filterLift)?.weight || 0} ${lifter.personalRecords.find(record => record.lift === filterLift)?.unit || 'lb'}`
+                    : lifter.totalScore
+                  }
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
 
       {selectedLifter && (
@@ -330,63 +345,78 @@ export default function LeaderboardScreen() {
             <Image source={{ uri: selectedLifter.profileImage }} style={styles.modalImage} />
             <View style={styles.modalContent}>
               <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {selectedLifter.name}, {selectedLifter.age}
+                {selectedLifter.name} {selectedLifter.age ? `, ${selectedLifter.age}` : ''}
+                {isCurrentUser(selectedLifter) && " (You)"}
               </Text>
               <Text style={[styles.modalSubtitle, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
-                {selectedLifter.location}
+                {selectedLifter.location || 'Unknown location'}
               </Text>
-              
-              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Bio
-              </Text>
-              <Text style={[styles.bioText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {selectedLifter.bio}
-              </Text>
-              
+
+              {selectedLifter.bio && (
+                <>
+                  <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Bio
+                  </Text>
+                  <Text style={[styles.bioText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    {selectedLifter.bio}
+                  </Text>
+                </>
+              )}
+
               <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
                 Personal Records
               </Text>
-              <View style={styles.prContainer}>
-                {selectedLifter.personalRecords.map((record, index) => (
-                  <View 
-                    key={index} 
-                    style={[
-                      styles.prCard, 
-                      { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
-                    ]}
-                  >
-                    <Text style={[styles.prLift, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {record.lift}
-                    </Text>
-                    <Text style={[styles.prValue, { color: Colors[colorScheme ?? 'light'].tint }]}>
-                      {record.weight} {record.unit}
-                    </Text>
-                    <Text style={[styles.prDate, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
-                      {new Date(record.date).toLocaleDateString()}
-                    </Text>
+              {selectedLifter.personalRecords.length === 0 ? (
+                <Text style={[styles.emptyRecords, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+                  No personal records yet
+                </Text>
+              ) : (
+                <View style={styles.prContainer}>
+                  {selectedLifter.personalRecords.map((record, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.prCard,
+                        { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
+                      ]}
+                    >
+                      <Text style={[styles.prLift, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {record.lift}
+                      </Text>
+                      <Text style={[styles.prValue, { color: Colors[colorScheme ?? 'light'].tint }]}>
+                        {record.weight} {record.unit}
+                      </Text>
+                      <Text style={[styles.prDate, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+                        {new Date(record.date).toLocaleDateString()}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {selectedLifter.specialties && selectedLifter.specialties.length > 0 && (
+                <>
+                  <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Specialties
+                  </Text>
+                  <View style={styles.specialtiesGrid}>
+                    {selectedLifter.specialties.map((specialty, index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.specialtyTagLarge,
+                          { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }
+                        ]}
+                      >
+                        <Text style={[styles.specialtyText, { color: Colors[colorScheme ?? 'light'].tint }]}>
+                          {specialty}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
-              
-              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Specialties
-              </Text>
-              <View style={styles.specialtiesGrid}>
-                {selectedLifter.specialties.map((specialty, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.specialtyTagLarge,
-                      { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }
-                    ]}
-                  >
-                    <Text style={[styles.specialtyText, { color: Colors[colorScheme ?? 'light'].tint }]}>
-                      {specialty}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              
+                </>
+              )}
+
               <View style={styles.totalScoreContainer}>
                 <Text style={[styles.totalScoreLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
                   Total Lifting Score
@@ -397,7 +427,7 @@ export default function LeaderboardScreen() {
               </View>
             </View>
           </ScrollView>
-          
+
           <View style={styles.modalButtons}>
             <TouchableOpacity
               style={[styles.closeButton, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}
@@ -408,6 +438,67 @@ export default function LeaderboardScreen() {
           </View>
         </View>
       )}
+
+      <Portal>
+        <Dialog
+          visible={prDialogVisible}
+          onDismiss={() => setPrDialogVisible(false)}
+          style={{ backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }}
+        >
+          <Dialog.Title>Add Personal Record</Dialog.Title>
+          <Dialog.Content>
+            <PaperTextInput
+              label="Exercise"
+              value={newPR.lift}
+              onChangeText={(text) => setNewPR({ ...newPR, lift: text })}
+              style={styles.input}
+              mode="outlined"
+            />
+
+            <View style={styles.inputRow}>
+              <PaperTextInput
+                label="Weight"
+                value={newPR.weight}
+                onChangeText={(text) => setNewPR({ ...newPR, weight: text })}
+                keyboardType="numeric"
+                style={[styles.input, { flex: 3 }]}
+                mode="outlined"
+              />
+
+              <View style={{ width: 8 }} />
+
+              <PaperTextInput
+                label="Unit"
+                value={newPR.unit}
+                onChangeText={(text) => setNewPR({ ...newPR, unit: text === 'kg' ? 'kg' : 'lb' })}
+                style={[styles.input, { flex: 1 }]}
+                mode="outlined"
+                right={
+                  <PaperTextInput.Icon
+                    icon="chevron-down"
+                    onPress={() => {
+                      setNewPR({ ...newPR, unit: newPR.unit === 'kg' ? 'lb' : 'kg' });
+                    }}
+                  />
+                }
+              />
+            </View>
+
+            <PaperTextInput
+              label="Date"
+              value={newPR.date}
+              onChangeText={(text) => setNewPR({ ...newPR, date: text })}
+              style={styles.input}
+              mode="outlined"
+              placeholder="YYYY-MM-DD"
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPrDialogVisible(false)}>Cancel</Button>
+            <Button onPress={handleAddPersonalRecord} mode="contained">Save</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 }
@@ -638,4 +729,61 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-}); 
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 32,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  addRecordContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  input: {
+    marginBottom: 16,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currentUserRow: {
+    borderWidth: 2,
+    borderColor: Colors.light.tint,
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currentUserBadge: {
+    backgroundColor: Colors.light.tint,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 8,
+  },
+  currentUserText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  emptyRecords: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+});
