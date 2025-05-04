@@ -1,191 +1,257 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Image, ScrollView } from 'react-native';
-import { Text, Card, Divider, Button, IconButton, ProgressBar } from 'react-native-paper';
+import React, { useState, useContext } from 'react';
+import { View, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } from 'react-native';
+import { Text, Chip, Divider, Button, IconButton } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
-import { Meal, calculateNutrition } from '../../services/mealService';
+import { Meal, UserMeal, calculateNutrition, deleteCustomMeal } from '../../services/mealService';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import Slider from '@react-native-community/slider';
+import { AuthContext } from '../../app/_layout';
 
 interface MealDetailProps {
-  meal: Meal;
-  onAdd: (meal: Meal, grams: number) => void;
+  meal: Meal | UserMeal;
   onClose: () => void;
+  onSelectMeal?: () => void;
+  onMealDeleted?: () => void;
 }
 
-const MealDetail: React.FC<MealDetailProps> = ({ meal, onAdd, onClose }) => {
-  const [portionSize, setPortionSize] = useState(meal.servingSizeGrams);
-  const [nutrition, setNutrition] = useState(calculateNutrition(meal, meal.servingSizeGrams));
+const MealDetail: React.FC<MealDetailProps> = ({ meal, onClose, onSelectMeal, onMealDeleted }) => {
+  const [servingSize, setServingSize] = useState(meal.servingSizeGrams);
+  const [servings, setServings] = useState(meal.defaultServings);
   const colorScheme = useColorScheme();
+  const { user } = useContext(AuthContext);
   
-  useEffect(() => {
-    setNutrition(calculateNutrition(meal, portionSize));
-  }, [portionSize, meal]);
+  // Calculate if this is a custom meal owned by the current user
+  const isCustomMeal = 'isCustom' in meal && meal.isCustom;
+  const isOwnedByUser = isCustomMeal && user && 'userId' in meal && meal.userId === user.uid;
   
-  const handleSliderChange = (value: number) => {
-    setPortionSize(Math.round(value));
+  // Calculate nutrition based on serving size
+  const totalGrams = servings * servingSize;
+  const nutrition = calculateNutrition(meal, totalGrams);
+  
+  const handleServingSizeChange = (amount: number) => {
+    const newSize = Math.max(25, servingSize + amount); // Minimum 25g
+    setServingSize(newSize);
   };
-
-  const adjustPortionSize = (adjustment: number) => {
-    const newSize = Math.max(10, portionSize + adjustment);
-    setPortionSize(newSize);
+  
+  const handleServingsChange = (amount: number) => {
+    const newServings = Math.max(0.5, servings + amount); // Minimum 0.5 servings
+    setServings(newServings);
+  };
+  
+  const handleDeleteMeal = () => {
+    if (!isOwnedByUser) return;
+    
+    Alert.alert(
+      "Delete Meal",
+      "Are you sure you want to delete this custom meal? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteCustomMeal(meal.id);
+              Alert.alert("Success", "Your meal has been deleted.");
+              if (onMealDeleted) {
+                onMealDeleted();
+              }
+              onClose();
+            } catch (error) {
+              console.error("Error deleting meal:", error);
+              Alert.alert("Error", "Failed to delete meal. Please try again.");
+            }
+          }
+        }
+      ]
+    );
   };
   
   return (
     <ScrollView 
-      style={[
-        styles.container, 
-        { backgroundColor: Colors[colorScheme ?? 'light'].background }
-      ]}
-      showsVerticalScrollIndicator={false}
+      style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}
+      contentContainerStyle={styles.contentContainer}
     >
       <View style={styles.header}>
-        <IconButton 
-          icon="arrow-left" 
-          size={24} 
-          onPress={onClose} 
-          style={styles.backButton}
-          iconColor={Colors[colorScheme ?? 'light'].text}
+        <IconButton
+          icon="close"
+          size={24}
+          onPress={onClose}
+          style={styles.closeButton}
         />
+        
+        {isOwnedByUser && (
+          <View style={styles.actionButtons}>
+            <IconButton
+              icon="trash-outline"
+              iconColor="#FF3B30"
+              size={24}
+              onPress={handleDeleteMeal}
+            />
+          </View>
+        )}
       </View>
       
-      <Image source={{ uri: meal.image }} style={styles.mealImage} />
+      {/* Meal Image */}
+      <View style={styles.imageContainer}>
+        <Image source={{ uri: meal.image }} style={styles.mealImage} />
+      </View>
       
-      <View style={styles.content}>
-        <Text style={[styles.mealName, { color: Colors[colorScheme ?? 'light'].text }]}>
-          {meal.name}
-        </Text>
+      {/* Meal Info */}
+      <View style={styles.contentPadding}>
+        <View style={styles.mealHeaderRow}>
+          <Text style={[styles.mealName, { color: Colors[colorScheme ?? 'light'].text }]}>
+            {meal.name}
+          </Text>
+          <Chip 
+            style={[
+              styles.categoryChip, 
+              { backgroundColor: Colors[colorScheme ?? 'light'].tint }
+            ]}
+          >
+            <Text style={styles.categoryText}>{meal.category}</Text>
+          </Chip>
+        </View>
         
-        <Card 
-          style={[
-            styles.nutritionCard, 
-            { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
-          ]}
-        >
-          <Card.Content>
-            <Text style={styles.sectionTitle}>Nutrition Information</Text>
-            <Text style={styles.portionText}>
-              Portion size: {portionSize}g
+        {isCustomMeal && (
+          <Chip style={styles.customMealChip}>
+            <Text style={{ color: 'white' }}>My Custom Meal</Text>
+          </Chip>
+        )}
+        
+        {/* Nutritional Info */}
+        <View style={[styles.nutritionCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
+          <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Nutritional Information
+          </Text>
+          
+          {/* Serving Size Controls */}
+          <View style={styles.servingControls}>
+            <View style={styles.servingControl}>
+              <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>Serving Size:</Text>
+              <View style={styles.controlRow}>
+                <IconButton 
+                  icon="remove"
+                  size={16}
+                  onPress={() => handleServingSizeChange(-25)}
+                  style={styles.controlButton}
+                />
+                <Text style={[styles.servingValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {servingSize}g
+                </Text>
+                <IconButton 
+                  icon="add"
+                  size={16}
+                  onPress={() => handleServingSizeChange(25)}
+                  style={styles.controlButton}
+                />
+              </View>
+            </View>
+            
+            <View style={styles.servingControl}>
+              <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>Servings:</Text>
+              <View style={styles.controlRow}>
+                <IconButton 
+                  icon="remove"
+                  size={16}
+                  onPress={() => handleServingsChange(-0.5)}
+                  style={styles.controlButton}
+                />
+                <Text style={[styles.servingValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {servings.toFixed(1)}
+                </Text>
+                <IconButton 
+                  icon="add"
+                  size={16}
+                  onPress={() => handleServingsChange(0.5)}
+                  style={styles.controlButton}
+                />
+              </View>
+            </View>
+          </View>
+          
+          <Divider style={styles.divider} />
+          
+          {/* Nutrition Stats */}
+          <View style={styles.nutritionStats}>
+            <View style={styles.nutritionStat}>
+              <Text style={styles.statLabel}>Calories</Text>
+              <Text style={[styles.statValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {nutrition.calories} kcal
+              </Text>
+            </View>
+            
+            <View style={styles.nutritionStat}>
+              <Text style={styles.statLabel}>Protein</Text>
+              <Text style={[styles.statValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {nutrition.protein}g
+              </Text>
+            </View>
+            
+            <View style={styles.nutritionStat}>
+              <Text style={styles.statLabel}>Carbs</Text>
+              <Text style={[styles.statValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {nutrition.carbs}g
+              </Text>
+            </View>
+            
+            <View style={styles.nutritionStat}>
+              <Text style={styles.statLabel}>Fat</Text>
+              <Text style={[styles.statValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {nutrition.fat}g
+              </Text>
+            </View>
+          </View>
+          
+          <View style={styles.totalGrams}>
+            <Text style={[styles.totalGramsText, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+              Total: {totalGrams}g
             </Text>
-            
-            <View style={styles.sliderContainer}>
-              <IconButton 
-                icon="minus" 
-                size={20}
-                onPress={() => adjustPortionSize(-25)} 
-                style={styles.sliderButton}
-              />
-              <Slider
-                style={styles.slider}
-                minimumValue={10}
-                maximumValue={500}
-                value={portionSize}
-                onValueChange={(value) => handleSliderChange(value)}
-                minimumTrackTintColor={Colors[colorScheme ?? 'light'].tint}
-                maximumTrackTintColor="#d3d3d3"
-                thumbTintColor={Colors[colorScheme ?? 'light'].tint}
-              />
-              <IconButton 
-                icon="plus" 
-                size={20}
-                onPress={() => adjustPortionSize(25)} 
-                style={styles.sliderButton}
-              />
+          </View>
+        </View>
+        
+        {/* Ingredients */}
+        <View style={[styles.sectionCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
+          <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Ingredients
+          </Text>
+          {meal.ingredients.map((ingredient, index) => (
+            <View key={`ingredient-${index}`} style={styles.listItem}>
+              <Ionicons name="ellipse" size={8} color={Colors[colorScheme ?? 'light'].tint} style={styles.listBullet} />
+              <Text style={[styles.listText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {ingredient}
+              </Text>
             </View>
-            
-            <View style={styles.nutrientRows}>
-              <View style={styles.nutrientRow}>
-                <Text style={styles.nutrientName}>Calories</Text>
-                <Text style={styles.nutrientValue}>{nutrition.calories} kcal</Text>
-              </View>
-              
-              <View style={styles.nutrientBar}>
-                <Text style={styles.barLabel}>Protein</Text>
-                <View style={styles.barContainer}>
-                  <ProgressBar 
-                    progress={nutrition.protein / 50} 
-                    color="#4CAF50" 
-                    style={styles.bar} 
-                  />
-                  <Text style={styles.barValue}>{nutrition.protein}g</Text>
-                </View>
-              </View>
-              
-              <View style={styles.nutrientBar}>
-                <Text style={styles.barLabel}>Carbs</Text>
-                <View style={styles.barContainer}>
-                  <ProgressBar 
-                    progress={nutrition.carbs / 150} 
-                    color="#2196F3" 
-                    style={styles.bar} 
-                  />
-                  <Text style={styles.barValue}>{nutrition.carbs}g</Text>
-                </View>
-              </View>
-              
-              <View style={styles.nutrientBar}>
-                <Text style={styles.barLabel}>Fat</Text>
-                <View style={styles.barContainer}>
-                  <ProgressBar 
-                    progress={nutrition.fat / 50} 
-                    color="#FF9800" 
-                    style={styles.bar} 
-                  />
-                  <Text style={styles.barValue}>{nutrition.fat}g</Text>
-                </View>
-              </View>
+          ))}
+        </View>
+        
+        {/* Recipe */}
+        <View style={[styles.sectionCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
+          <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Recipe
+          </Text>
+          {meal.recipe.map((step, index) => (
+            <View key={`step-${index}`} style={styles.listItem}>
+              <Text style={[styles.stepNumber, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}>
+                {index + 1}
+              </Text>
+              <Text style={[styles.listText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {step}
+              </Text>
             </View>
-          </Card.Content>
-        </Card>
+          ))}
+        </View>
         
-        <Card 
-          style={[
-            styles.card, 
-            { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
-          ]}
-        >
-          <Card.Content>
-            <Text style={styles.sectionTitle}>Ingredients</Text>
-            {meal.ingredients.map((ingredient, index) => (
-              <View key={index} style={styles.ingredientRow}>
-                <Ionicons name="checkmark-circle-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                <Text style={[styles.ingredientText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {ingredient}
-                </Text>
-              </View>
-            ))}
-          </Card.Content>
-        </Card>
-        
-        <Card 
-          style={[
-            styles.card, 
-            { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
-          ]}
-        >
-          <Card.Content>
-            <Text style={styles.sectionTitle}>Recipe</Text>
-            {meal.recipe.map((step, index) => (
-              <View key={index} style={styles.recipeStep}>
-                <View style={[styles.stepNumber, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}>
-                  <Text style={styles.stepNumberText}>{index + 1}</Text>
-                </View>
-                <Text style={[styles.stepText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {step}
-                </Text>
-              </View>
-            ))}
-          </Card.Content>
-        </Card>
-        
-        <Button
-          mode="contained"
-          onPress={() => onAdd(meal, portionSize)}
-          style={[styles.addButton, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}
-          contentStyle={styles.addButtonContent}
-        >
-          Add to Daily Log
-        </Button>
+        {onSelectMeal && (
+          <Button 
+            mode="contained"
+            style={[styles.selectButton, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}
+            onPress={onSelectMeal}
+            contentStyle={styles.selectButtonContent}
+          >
+            Add to My Meals
+          </Button>
+        )}
       </View>
     </ScrollView>
   );
@@ -195,132 +261,153 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  contentContainer: {
+    paddingBottom: 24,
+  },
+  contentPadding: {
+    paddingHorizontal: 16,
+  },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     position: 'absolute',
     top: 0,
     left: 0,
-    zIndex: 1,
-    padding: 8,
+    right: 0,
+    zIndex: 10,
   },
-  backButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 20,
+  closeButton: {
+    margin: 8,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+  },
+  imageContainer: {
+    height: 250,
+    width: '100%',
+    marginBottom: 16,
   },
   mealImage: {
     width: '100%',
-    height: 250,
+    height: '100%',
   },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
+  mealHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   mealName: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 16,
+    flex: 1,
+  },
+  categoryChip: {
+    borderRadius: 16,
+  },
+  categoryText: {
+    color: 'white',
+    textTransform: 'capitalize',
+  },
+  customMealChip: {
+    marginBottom: 12,
+    backgroundColor: '#FF6B6B',
   },
   nutritionCard: {
+    padding: 16,
+    borderRadius: 8,
     marginBottom: 16,
   },
-  card: {
+  sectionCard: {
+    padding: 16,
+    borderRadius: 8,
     marginBottom: 16,
   },
-  sectionTitle: {
+  cardTitle: {
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 12,
   },
-  portionText: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  sliderContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sliderButton: {
-    margin: 0,
-  },
-  slider: {
-    flex: 1,
-    height: 40,
-  },
-  nutrientRows: {
-    marginTop: 8,
-  },
-  nutrientRow: {
+  servingControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
   },
-  nutrientName: {
-    fontSize: 16,
+  servingControl: {
+    alignItems: 'center',
   },
-  nutrientValue: {
+  controlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  controlButton: {
+    margin: 0,
+  },
+  servingValue: {
     fontSize: 16,
     fontWeight: '500',
+    minWidth: 40,
+    textAlign: 'center',
   },
-  nutrientBar: {
-    marginBottom: 12,
+  divider: {
+    marginVertical: 12,
   },
-  barLabel: {
-    fontSize: 14,
+  nutritionStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  nutritionStat: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
     marginBottom: 4,
   },
-  barContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  bar: {
-    flex: 1,
-    height: 10,
-    borderRadius: 5,
-  },
-  barValue: {
-    marginLeft: 8,
-    fontSize: 14,
+  statValue: {
+    fontSize: 16,
     fontWeight: '500',
-    width: 36,
-    textAlign: 'right',
   },
-  ingredientRow: {
+  totalGrams: {
+    marginTop: 12,
+    alignItems: 'flex-end',
+  },
+  totalGramsText: {
+    fontSize: 12,
+  },
+  listItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
+    alignItems: 'flex-start',
   },
-  ingredientText: {
-    marginLeft: 8,
-    fontSize: 15,
-  },
-  recipeStep: {
-    flexDirection: 'row',
-    marginBottom: 16,
+  listBullet: {
+    marginTop: 6,
+    marginRight: 8,
   },
   stepNumber: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    marginTop: 2,
-  },
-  stepNumberText: {
+    textAlign: 'center',
     color: 'white',
+    fontSize: 14,
     fontWeight: 'bold',
-    fontSize: 12,
+    lineHeight: 24,
+    marginRight: 12,
   },
-  stepText: {
+  listText: {
     flex: 1,
-    fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 20,
   },
-  addButton: {
-    marginVertical: 8,
+  selectButton: {
+    marginTop: 8,
+    borderRadius: 8,
   },
-  addButtonContent: {
-    paddingVertical: 8,
+  selectButtonContent: {
+    height: 50,
   },
 });
 

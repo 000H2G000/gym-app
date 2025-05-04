@@ -1,452 +1,413 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Card, Title, Paragraph, ProgressBar, Button, FAB, Portal, Modal, Divider, IconButton } from 'react-native-paper';
+import React, { useState, useContext, useEffect, useCallback } from 'react';
+import { View, StyleSheet, SafeAreaView, Modal, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { Stack } from 'expo-router';
+import { Text, FAB, Button, Chip, Divider, IconButton } from 'react-native-paper';
+import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import MealSelector from '../../components/nutrition/MealSelector';
-import MealDetail from '../../components/nutrition/MealDetail';
-import { Meal } from '../../services/mealService';
+import MealSelector from '@/components/nutrition/MealSelector';
+import MealDetail from '@/components/nutrition/MealDetail';
+import AddMealForm from '@/components/nutrition/AddMealForm';
+import { Meal, getMealsByCategory, getAllMeals, getUserCustomMeals } from '@/services/mealService';
+import { AuthContext } from '../_layout';
 
-interface ConsumedMeal {
-  meal: Meal;
-  grams: number;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-}
-
-const NutritionScreen = () => {
-  const colorScheme = useColorScheme();
-  
-  // State for daily consumption tracking
-  const [consumedMeals, setConsumedMeals] = useState<ConsumedMeal[]>([]);
-  const [dailyTotals, setDailyTotals] = useState({
-    calories: 0,
-    protein: 0,
-    carbs: 0,
-    fat: 0
-  });
-  
-  // Daily goals
-  const [dailyGoals] = useState({
-    calories: 2000,
-    protein: 150,
-    carbs: 250,
-    fat: 65
-  });
-  
-  // UI state
-  const [selectorVisible, setSelectorVisible] = useState(false);
+export default function NutritionScreen() {
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
+  const [isDetailVisible, setIsDetailVisible] = useState(false);
+  const [isSelectorVisible, setIsSelectorVisible] = useState(false);
+  const [isAddFormVisible, setIsAddFormVisible] = useState(false);
+  const [userMeals, setUserMeals] = useState<Meal[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'custom'>('all');
+  const [allMeals, setAllMeals] = useState<Meal[]>([]);
   
-  // Calculate percentage of goal reached
-  const calculatePercentage = (current: number, goal: number) => {
-    return Math.min((current / goal) * 100, 100);
-  };
-
-  // Get color based on percentage of goal
-  const getProgressColor = (percentage: number) => {
-    if (percentage >= 100) return "#FF5252"; // Red if over goal
-    if (percentage >= 80) return "#FF9800"; // Orange if getting close
-    return Colors[colorScheme ?? 'light'].tint; // Default theme color
-  };
+  const colorScheme = useColorScheme();
+  const { user } = useContext(AuthContext);
   
-  // Add a meal to the daily consumption
-  const handleAddMeal = (meal: Meal, grams: number) => {
-    // Calculate nutrition for the specified portion
-    const factor = grams / 100;
-    const calories = Math.round(meal.caloriesPer100g * factor);
-    const protein = parseFloat((meal.proteinPer100g * factor).toFixed(1));
-    const carbs = parseFloat((meal.carbsPer100g * factor).toFixed(1));
-    const fat = parseFloat((meal.fatPer100g * factor).toFixed(1));
-    
-    // Create consumed meal object
-    const consumedMeal: ConsumedMeal = {
-      meal,
-      grams,
-      calories,
-      protein,
-      carbs,
-      fat
-    };
-    
-    // Add to consumed meals list
-    setConsumedMeals([...consumedMeals, consumedMeal]);
-    
-    // Update daily totals
-    setDailyTotals({
-      calories: dailyTotals.calories + calories,
-      protein: parseFloat((dailyTotals.protein + protein).toFixed(1)),
-      carbs: parseFloat((dailyTotals.carbs + carbs).toFixed(1)),
-      fat: parseFloat((dailyTotals.fat + fat).toFixed(1))
-    });
-    
-    // Close meal detail
-    setSelectedMeal(null);
-    
-    // Show success message
-    Alert.alert('Meal Added', `Added ${meal.name} (${grams}g) to your daily log.`);
-  };
-  
-  // Remove a meal from the daily consumption
-  const handleRemoveMeal = (index: number) => {
-    // Get the meal to remove
-    const mealToRemove = consumedMeals[index];
-    
-    // Update daily totals
-    setDailyTotals({
-      calories: dailyTotals.calories - mealToRemove.calories,
-      protein: parseFloat((dailyTotals.protein - mealToRemove.protein).toFixed(1)),
-      carbs: parseFloat((dailyTotals.carbs - mealToRemove.carbs).toFixed(1)),
-      fat: parseFloat((dailyTotals.fat - mealToRemove.fat).toFixed(1))
-    });
-    
-    // Remove from consumed meals list
-    const updatedMeals = [...consumedMeals];
-    updatedMeals.splice(index, 1);
-    setConsumedMeals(updatedMeals);
-  };
-  
-  // Reset daily consumption
-  const resetDailyLog = () => {
-    Alert.alert(
-      'Reset Daily Log',
-      'Are you sure you want to clear all logged meals for today?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Reset',
-          onPress: () => {
-            setConsumedMeals([]);
-            setDailyTotals({
-              calories: 0,
-              protein: 0,
-              carbs: 0,
-              fat: 0
-            });
-          }
-        }
-      ]
-    );
-  };
-  
-  return (
-    <SafeAreaView 
-      style={[
-        styles.container, 
-        { backgroundColor: Colors[colorScheme ?? 'light'].background }
-      ]}
-    >
-      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-      
-      <ScrollView style={styles.scrollView}>
-        {/* Daily Nutrition Summary */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Title>Daily Nutrition</Title>
-            
-            <View style={styles.summaryContainer}>
-              <View style={styles.summaryItem}>
-                <Ionicons name="flame-outline" size={24} color="#FF5252" />
-                <Text style={styles.summaryValue}>{dailyTotals.calories}</Text>
-                <Text style={styles.summaryLabel}>Calories</Text>
-              </View>
-              
-              <View style={styles.summaryItem}>
-                <Ionicons name="barbell-outline" size={24} color="#4CAF50" />
-                <Text style={styles.summaryValue}>{dailyTotals.protein}g</Text>
-                <Text style={styles.summaryLabel}>Protein</Text>
-              </View>
-              
-              <View style={styles.summaryItem}>
-                <Ionicons name="pizza-outline" size={24} color="#2196F3" />
-                <Text style={styles.summaryValue}>{dailyTotals.carbs}g</Text>
-                <Text style={styles.summaryLabel}>Carbs</Text>
-              </View>
-              
-              <View style={styles.summaryItem}>
-                <Ionicons name="water-outline" size={24} color="#FF9800" />
-                <Text style={styles.summaryValue}>{dailyTotals.fat}g</Text>
-                <Text style={styles.summaryLabel}>Fat</Text>
-              </View>
-            </View>
-            
-            <View style={styles.nutrientContainer}>
-              <View style={styles.nutrientLabelContainer}>
-                <Text style={styles.nutrientLabel}>Calories</Text>
-                <Text style={styles.goalLabel}>
-                  {dailyTotals.calories} / {dailyGoals.calories} kcal
-                </Text>
-              </View>
-              <ProgressBar
-                progress={calculatePercentage(dailyTotals.calories, dailyGoals.calories) / 100}
-                color={getProgressColor(calculatePercentage(dailyTotals.calories, dailyGoals.calories))}
-                style={styles.progressBar}
-              />
-            </View>
-            
-            <View style={styles.nutrientContainer}>
-              <View style={styles.nutrientLabelContainer}>
-                <Text style={styles.nutrientLabel}>Protein</Text>
-                <Text style={styles.goalLabel}>
-                  {dailyTotals.protein}g / {dailyGoals.protein}g
-                </Text>
-              </View>
-              <ProgressBar
-                progress={calculatePercentage(dailyTotals.protein, dailyGoals.protein) / 100}
-                color={getProgressColor(calculatePercentage(dailyTotals.protein, dailyGoals.protein))}
-                style={styles.progressBar}
-              />
-            </View>
-            
-            <View style={styles.nutrientContainer}>
-              <View style={styles.nutrientLabelContainer}>
-                <Text style={styles.nutrientLabel}>Carbohydrates</Text>
-                <Text style={styles.goalLabel}>
-                  {dailyTotals.carbs}g / {dailyGoals.carbs}g
-                </Text>
-              </View>
-              <ProgressBar
-                progress={calculatePercentage(dailyTotals.carbs, dailyGoals.carbs) / 100}
-                color={getProgressColor(calculatePercentage(dailyTotals.carbs, dailyGoals.carbs))}
-                style={styles.progressBar}
-              />
-            </View>
-            
-            <View style={styles.nutrientContainer}>
-              <View style={styles.nutrientLabelContainer}>
-                <Text style={styles.nutrientLabel}>Fat</Text>
-                <Text style={styles.goalLabel}>
-                  {dailyTotals.fat}g / {dailyGoals.fat}g
-                </Text>
-              </View>
-              <ProgressBar
-                progress={calculatePercentage(dailyTotals.fat, dailyGoals.fat) / 100}
-                color={getProgressColor(calculatePercentage(dailyTotals.fat, dailyGoals.fat))}
-                style={styles.progressBar}
-              />
-            </View>
-            
-            {consumedMeals.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Ionicons 
-                  name="restaurant-outline" 
-                  size={50} 
-                  color={Colors[colorScheme ?? 'light'].mutedText} 
-                />
-                <Text style={[styles.emptyText, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
-                  No meals logged today
-                </Text>
-                <Button 
-                  mode="contained" 
-                  onPress={() => setSelectorVisible(true)}
-                  style={[styles.addMealButton, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}
-                >
-                  Add Meal
-                </Button>
-              </View>
-            ) : (
-              <Button 
-                mode="outlined" 
-                onPress={resetDailyLog}
-                style={styles.resetButton}
-              >
-                Reset Daily Log
-              </Button>
-            )}
-          </Card.Content>
-        </Card>
+  // Load meals when the screen is focused
+  const loadMeals = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      if (user) {
+        const customMeals = await getUserCustomMeals(user.uid);
+        setUserMeals(customMeals);
         
-        {/* Consumed Meals List */}
-        {consumedMeals.length > 0 && (
-          <Card style={styles.card}>
-            <Card.Content>
-              <Title>Today's Meals</Title>
-              
-              {consumedMeals.map((consumedMeal, index) => (
-                <React.Fragment key={`${consumedMeal.meal.id}-${index}`}>
-                  {index > 0 && <Divider style={styles.divider} />}
-                  <View style={styles.mealRow}>
-                    <View style={styles.mealInfo}>
-                      <Text style={styles.mealName}>{consumedMeal.meal.name}</Text>
-                      <Text style={styles.mealDetail}>
-                        {consumedMeal.grams}g • {consumedMeal.calories} kcal
-                      </Text>
-                      <Text style={styles.mealMacros}>
-                        P: {consumedMeal.protein}g • C: {consumedMeal.carbs}g • F: {consumedMeal.fat}g
-                      </Text>
-                    </View>
-                    <IconButton
-                      icon="close"
-                      size={20}
-                      onPress={() => handleRemoveMeal(index)}
+        const all = await getAllMeals(user.uid);
+        setAllMeals(all);
+      } else {
+        const all = await getAllMeals();
+        setAllMeals(all);
+        setUserMeals([]);
+      }
+    } catch (error) {
+      console.error('Error loading meals:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+  
+  useEffect(() => {
+    loadMeals();
+  }, [loadMeals]);
+  
+  const handleCloseMealDetail = () => {
+    setIsDetailVisible(false);
+    setSelectedMeal(null);
+  };
+  
+  const handleMealSelected = (meal: Meal) => {
+    setSelectedMeal(meal);
+    setIsDetailVisible(true);
+    setIsSelectorVisible(false);
+  };
+  
+  const handleAddMeal = () => {
+    if (!user) {
+      // Show login prompt if user is not logged in
+      alert('Please log in to add custom meals');
+      return;
+    }
+    
+    // Show action menu
+    setIsSelectorVisible(true);
+  };
+  
+  const handleCloseMealSelector = () => {
+    setIsSelectorVisible(false);
+  };
+  
+  const handleShowAddForm = () => {
+    setIsSelectorVisible(false);
+    setIsAddFormVisible(true);
+  };
+  
+  const handleMealAdded = () => {
+    setIsAddFormVisible(false);
+    // Reload meals to show the newly added custom meal
+    loadMeals();
+  };
+  
+  const handleCancelAddMeal = () => {
+    setIsAddFormVisible(false);
+  };
+  
+  const displayedMeals = activeTab === 'custom' ? userMeals : allMeals;
+  
+  const mealsByCategory = React.useMemo(() => {
+    const categories = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert'];
+    let categorized: Record<string, Meal[]> = {};
+    
+    categories.forEach(category => {
+      categorized[category] = displayedMeals.filter(meal => meal.category === category);
+    });
+    
+    return categorized;
+  }, [displayedMeals]);
+
+  if (isLoading && !displayedMeals.length) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        <Stack.Screen options={{ title: 'Nutrition', headerLargeTitle: true }} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
+          <Text style={{ marginTop: 16, color: Colors[colorScheme ?? 'light'].text }}>
+            Loading meals...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+      <Stack.Screen options={{ title: 'Nutrition', headerLargeTitle: true }} />
+      
+      {user && (
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              activeTab === 'all' && { borderBottomColor: Colors[colorScheme ?? 'light'].tint }
+            ]}
+            onPress={() => setActiveTab('all')}
+          >
+            <Text style={[
+              styles.tabText,
+              activeTab === 'all' && { color: Colors[colorScheme ?? 'light'].tint }
+            ]}>
+              All Meals
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              activeTab === 'custom' && { borderBottomColor: Colors[colorScheme ?? 'light'].tint }
+            ]}
+            onPress={() => setActiveTab('custom')}
+          >
+            <Text style={[
+              styles.tabText,
+              activeTab === 'custom' && { color: Colors[colorScheme ?? 'light'].tint }
+            ]}>
+              My Custom Meals
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      
+      <ScrollView style={styles.content}>
+        {activeTab === 'custom' && userMeals.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons 
+              name="restaurant-outline" 
+              size={64} 
+              color={Colors[colorScheme ?? 'light'].mutedText} 
+            />
+            <Text style={[styles.emptyText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              No Custom Meals Yet
+            </Text>
+            <Text style={[styles.emptySubText, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+              Add your favorite recipes and track your nutrition
+            </Text>
+            <Button 
+              mode="contained" 
+              onPress={handleShowAddForm}
+              style={[styles.addButton, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}
+            >
+              Create Custom Meal
+            </Button>
+          </View>
+        ) : (
+          Object.entries(mealsByCategory).map(([category, meals]) => 
+            meals.length > 0 && (
+              <View key={category} style={styles.categorySection}>
+                <Text style={[styles.categoryTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {category.charAt(0).toUpperCase() + category.slice(1)}
+                </Text>
+                {meals.map(meal => (
+                  <TouchableOpacity
+                    key={meal.id}
+                    style={[styles.mealCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}
+                    onPress={() => handleMealSelected(meal)}
+                  >
+                    <Image 
+                      source={{ uri: meal.image }} 
+                      style={styles.mealImage} 
+                      resizeMode="cover"
                     />
-                  </View>
-                </React.Fragment>
-              ))}
-            </Card.Content>
-          </Card>
+                    <View style={styles.mealInfo}>
+                      <Text style={[styles.mealName, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {meal.name}
+                      </Text>
+                      <View style={styles.mealStats}>
+                        <Text style={[styles.mealStat, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+                          {meal.caloriesPer100g} kcal
+                        </Text>
+                        <Text style={[styles.mealStat, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+                          {meal.proteinPer100g}g protein
+                        </Text>
+                      </View>
+                      {'userId' in meal && (
+                        <Chip compact style={styles.customChip}>Custom</Chip>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )
+          )
         )}
       </ScrollView>
       
-      {/* Add Meal FAB */}
       <FAB
         icon="plus"
-        label="Add Meal"
         style={[styles.fab, { backgroundColor: Colors[colorScheme ?? 'light'].tint }]}
-        onPress={() => setSelectorVisible(true)}
+        onPress={handleAddMeal}
       />
       
       {/* Meal Selector Modal */}
-      <Portal>
-        <Modal
-          visible={selectorVisible}
-          onDismiss={() => setSelectorVisible(false)}
-          contentContainerStyle={[
-            styles.modalContainer,
-            { backgroundColor: Colors[colorScheme ?? 'light'].background }
-          ]}
-        >
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-              Select a Meal
+      <Modal
+        visible={isSelectorVisible}
+        animationType="slide"
+        onRequestClose={handleCloseMealSelector}
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.actionModal, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
+            <Text style={[styles.actionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+              Add Meal
             </Text>
-            <IconButton
-              icon="close"
-              size={24}
-              onPress={() => setSelectorVisible(false)}
-            />
+            
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => {
+                setIsSelectorVisible(false);
+                setIsAddFormVisible(true);
+              }}
+            >
+              <Ionicons 
+                name="create-outline" 
+                size={24} 
+                color={Colors[colorScheme ?? 'light'].tint} 
+              />
+              <Text style={[styles.actionText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Create Custom Meal
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => {
+                setIsSelectorVisible(false);
+                // Open the meal browser
+                setSelectedMeal(null);
+                setTimeout(() => {
+                  setIsSelectorVisible(true);
+                }, 300);
+              }}
+            >
+              <Ionicons 
+                name="search-outline" 
+                size={24} 
+                color={Colors[colorScheme ?? 'light'].tint} 
+              />
+              <Text style={[styles.actionText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Browse Meals
+              </Text>
+            </TouchableOpacity>
+            
+            <Button 
+              mode="text" 
+              onPress={handleCloseMealSelector}
+              style={styles.cancelButton}
+            >
+              Cancel
+            </Button>
           </View>
-          
-          <MealSelector onSelectMeal={(meal) => {
-            setSelectedMeal(meal);
-            setSelectorVisible(false);
-          }} />
-        </Modal>
-      </Portal>
+        </View>
+      </Modal>
+      
+      {/* Add Custom Meal Modal */}
+      <Modal
+        visible={isAddFormVisible}
+        animationType="slide"
+        onRequestClose={handleCancelAddMeal}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: Colors[colorScheme ?? 'light'].background }}>
+          <AddMealForm onMealAdded={handleMealAdded} onCancel={handleCancelAddMeal} />
+        </SafeAreaView>
+      </Modal>
       
       {/* Meal Detail Modal */}
-      <Portal>
-        <Modal
-          visible={selectedMeal !== null}
-          onDismiss={() => setSelectedMeal(null)}
-          contentContainerStyle={[
-            styles.modalContainer,
-            styles.detailModalContainer,
-            { backgroundColor: Colors[colorScheme ?? 'light'].background }
-          ]}
-        >
-          {selectedMeal && (
-            <MealDetail
-              meal={selectedMeal}
-              onAdd={handleAddMeal}
-              onClose={() => setSelectedMeal(null)}
-            />
-          )}
-        </Modal>
-      </Portal>
+      <Modal
+        visible={isDetailVisible}
+        animationType="slide"
+        onRequestClose={handleCloseMealDetail}
+      >
+        {selectedMeal && (
+          <MealDetail 
+            meal={selectedMeal} 
+            onClose={handleCloseMealDetail}
+          />
+        )}
+      </Modal>
     </SafeAreaView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scrollView: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  content: {
     flex: 1,
     padding: 16,
   },
-  card: {
-    marginBottom: 16,
+  categorySection: {
+    marginBottom: 24,
+  },
+  categoryTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  mealCard: {
+    flexDirection: 'row',
     borderRadius: 12,
     overflow: 'hidden',
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
-  summaryContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  summaryItem: {
-    alignItems: 'center',
-    padding: 8,
-  },
-  summaryValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#777',
-    marginTop: 2,
-  },
-  nutrientContainer: {
-    marginBottom: 16,
-  },
-  nutrientLabelContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  nutrientLabel: {
-    fontSize: 14,
-  },
-  goalLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  progressBar: {
-    height: 8,
-    borderRadius: 4,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    padding: 24,
-  },
-  emptyText: {
-    marginVertical: 12,
-    fontSize: 16,
-  },
-  addMealButton: {
-    marginTop: 16,
-    paddingVertical: 4,
-  },
-  resetButton: {
-    marginTop: 16,
-  },
-  mealRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
+  mealImage: {
+    width: 80,
+    height: 80,
   },
   mealInfo: {
     flex: 1,
+    padding: 12,
   },
   mealName: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
+    marginBottom: 4,
   },
-  mealDetail: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
+  mealStats: {
+    flexDirection: 'row',
+    marginBottom: 4,
   },
-  mealMacros: {
+  mealStat: {
     fontSize: 12,
-    color: '#888',
-    marginTop: 2,
+    marginRight: 12,
   },
-  divider: {
-    marginVertical: 8,
+  customChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#007AFF20',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+  },
+  emptySubText: {
+    textAlign: 'center',
+    marginHorizontal: 32,
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  addButton: {
+    marginTop: 16,
   },
   fab: {
     position: 'absolute',
@@ -454,28 +415,33 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  modalContainer: {
-    margin: 16,
-    borderRadius: 12,
+  modalOverlay: {
     flex: 1,
-    paddingBottom: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
   },
-  detailModalContainer: {
-    margin: 0,
-    padding: 0,
-    borderRadius: 0,
+  actionModal: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+    paddingBottom: 36,
   },
-  modalHeader: {
+  actionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 16,
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  }
+  actionText: {
+    fontSize: 16,
+    marginLeft: 16,
+  },
+  cancelButton: {
+    marginTop: 16,
+  },
 });
-
-export default NutritionScreen;

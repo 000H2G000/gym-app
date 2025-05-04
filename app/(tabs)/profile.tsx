@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Text, Button, Dialog, Portal, Card, ProgressBar, Divider } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isUserAdmin } from '@/services/userService';
 
 // Define the user type for TypeScript
 type User = {
@@ -48,6 +49,7 @@ export default function ProfileScreen() {
   const [editDialogVisible, setEditDialogVisible] = useState(false);
   const [editedData, setEditedData] = useState<EditedData>({});
   const colorScheme = useColorScheme();
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Add a border color variable instead of relying on Colors
   const borderColor = colorScheme === 'dark' ? '#444' : '#ddd';
@@ -60,6 +62,10 @@ export default function ProfileScreen() {
           if (userDoc.exists()) {
             setUserData({...userData, ...userDoc.data()});
           }
+          
+          // Check if user is admin
+          const adminStatus = await isUserAdmin(user.uid);
+          setIsAdmin(adminStatus);
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
@@ -291,6 +297,19 @@ export default function ProfileScreen() {
             </Text>
             <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].mutedText} />
           </TouchableOpacity>
+
+          {isAdmin && (
+            <TouchableOpacity 
+              style={[styles.menuItem, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}
+              onPress={() => router.push('/admin/dashboard')}
+            >
+              <Ionicons name="shield-checkmark-outline" size={22} color={Colors[colorScheme ?? 'light'].text} />
+              <Text style={[styles.menuItemText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Admin Dashboard
+              </Text>
+              <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].mutedText} />
+            </TouchableOpacity>
+          )}
           
           {/* Debug button to navigate to signup for testing */}
           <TouchableOpacity 
@@ -567,4 +586,4 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 12,
   },
-}); 
+});

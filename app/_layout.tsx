@@ -9,6 +9,7 @@ import { Colors } from '@/constants/Colors';
 import { PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Notification, subscribeToNotifications } from '../services/notificationService';
+import { isUserAdmin } from '../services/userService';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -18,12 +19,14 @@ interface AuthState {
   signedIn: boolean;
   user: User | null;
   isLoading: boolean;
+  isAdmin: boolean;
 }
 
 // Define AuthContext type
 interface AuthContextType {
   signedIn: boolean;
   user: User | null;
+  isAdmin: boolean;
   logout: () => Promise<void>;
 }
 
@@ -38,6 +41,7 @@ interface NotificationContextType {
 export const AuthContext = React.createContext<AuthContextType>({
   signedIn: false,
   user: null,
+  isAdmin: false,
   logout: async () => {}
 });
 
@@ -54,6 +58,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     signedIn: false,
     user: null,
     isLoading: true,
+    isAdmin: false,
   });
   
   const segments = useSegments();
@@ -88,15 +93,17 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     console.log("Setting up auth state change listener...");
     
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       console.log("Auth state changed:", user ? "User signed in" : "User signed out");
+      
+      let adminStatus = false;
       
       // Handle user sign-out
       if (!user) {
         console.log("User is signed out, clearing session data");
         
         // Clear all session data
-        AsyncStorage.multiRemove(['authToken', 'userEmail'])
+        await AsyncStorage.multiRemove(['authToken', 'userEmail', 'isAdmin'])
           .then(() => {
             console.log("Session data cleared");
             
@@ -108,12 +115,22 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           })
           .catch(err => console.error("Error clearing session data:", err));
+      } else {
+        // Check if user is admin
+        try {
+          adminStatus = await isUserAdmin(user.uid);
+          await AsyncStorage.setItem('isAdmin', adminStatus ? 'true' : 'false');
+          console.log("User admin status:", adminStatus);
+        } catch (error) {
+          console.error("Error checking admin status:", error);
+        }
       }
       
       setAuthState({
         signedIn: !!user,
         user,
         isLoading: false,
+        isAdmin: adminStatus,
       });
     });
 
@@ -125,20 +142,37 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     if (authState.isLoading) return;
     console.log("Auth state updated, handling navigation...");
     console.log("Signed in:", authState.signedIn);
+    console.log("Is admin:", authState.isAdmin);
     console.log("Current route segment:", segments[0]);
 
     const inAuthGroup = segments[0] === 'auth';
+    const inAdminGroup = segments[0] === 'admin';
     
     if (!authState.signedIn && !inAuthGroup) {
       // Redirect to the login page if not signed in
       console.log("Not signed in and not in auth group, redirecting to login...");
       router.replace('/auth/login');
-    } else if (authState.signedIn && inAuthGroup) {
-      // Redirect to the home page if signed in
-      console.log("Signed in but in auth group, redirecting to home...");
-      router.replace('/');
+    } else if (authState.signedIn) {
+      if (inAuthGroup) {
+        // Direct admin to admin dashboard, regular users to tabs
+        if (authState.isAdmin) {
+          console.log("Admin signed in, redirecting to admin dashboard...");
+          router.replace('/admin');
+        } else {
+          console.log("User signed in, redirecting to home...");
+          router.replace('/');
+        }
+      } else if (authState.isAdmin && !inAdminGroup) {
+        // Redirect admin to admin dashboard if they try to access user tabs
+        console.log("Admin trying to access user area, redirecting to admin dashboard...");
+        router.replace('/admin');
+      } else if (!authState.isAdmin && inAdminGroup) {
+        // Redirect non-admin away from admin area
+        console.log("Non-admin trying to access admin area, redirecting to home...");
+        router.replace('/');
+      }
     }
-  }, [authState.signedIn, authState.isLoading, segments]);
+  }, [authState.signedIn, authState.isAdmin, authState.isLoading, segments]);
 
   // Custom logout function
   const logout = async () => {
@@ -146,7 +180,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("Executing custom logout function");
       
       // 1. Clear all session data first
-      await AsyncStorage.multiRemove(['authToken', 'userEmail']);
+      await AsyncStorage.multiRemove(['authToken', 'userEmail', 'isAdmin']);
       console.log("Session storage cleared");
       
       // 2. Sign out from Firebase using auth.signOut() directly
@@ -167,6 +201,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{ 
       signedIn: authState.signedIn, 
       user: authState.user,
+      isAdmin: authState.isAdmin,
       logout
     }}>
       {authState.isLoading ? (
@@ -305,6 +340,7 @@ export default function RootLayout() {
           <Stack.Screen name="auth/signup" options={{ gestureEnabled: false }} />
           <Stack.Screen name="auth/reset-password" options={{ gestureEnabled: false }} />
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="admin" options={{ gestureEnabled: false }} />
           <Stack.Screen name="profile" />
           <Stack.Screen name="partners" />
           <Stack.Screen name="nutrition" />

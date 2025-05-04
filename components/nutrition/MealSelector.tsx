@@ -1,34 +1,68 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Image, TouchableOpacity, TextInput } from 'react-native';
-import { Text, Chip, Searchbar, Divider } from 'react-native-paper';
+import React, { useState, useEffect, useContext } from 'react';
+import { View, StyleSheet, FlatList, Image, TouchableOpacity, Modal } from 'react-native';
+import { Text, Chip, Searchbar, Divider, FAB, Badge } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
-import { Meal, MealCategory, getMealsByCategory, getMealCategories, searchMealsByName } from '../../services/mealService';
+import { 
+  Meal, 
+  MealCategory, 
+  getMealsByCategory, 
+  getMealCategories, 
+  searchMealsByName,
+  UserMeal,
+  getAllMealsByCategoryWithCustom
+} from '../../services/mealService';
+import { AuthContext } from '../../app/_layout';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import AddMealForm from './AddMealForm';
 
 interface MealSelectorProps {
-  onSelectMeal: (meal: Meal) => void;
+  onSelectMeal: (meal: Meal | UserMeal) => void;
 }
 
 const MealSelector: React.FC<MealSelectorProps> = ({ onSelectMeal }) => {
   const [selectedCategory, setSelectedCategory] = useState<MealCategory>('breakfast');
   const [searchQuery, setSearchQuery] = useState('');
-  const [meals, setMeals] = useState<Meal[]>([]);
+  const [meals, setMeals] = useState<(Meal | UserMeal)[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isAddingMeal, setIsAddingMeal] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
   const colorScheme = useColorScheme();
+  const { user } = useContext(AuthContext);
   
   const categories = getMealCategories();
   
   useEffect(() => {
-    // If searching, show search results, otherwise show meals by category
-    if (searchQuery.trim()) {
-      setMeals(searchMealsByName(searchQuery));
-      setIsSearching(true);
-    } else {
-      setMeals(getMealsByCategory(selectedCategory));
-      setIsSearching(false);
+    loadMeals();
+  }, [selectedCategory, searchQuery, user]);
+  
+  const loadMeals = async () => {
+    setIsLoading(true);
+    try {
+      // If searching, show search results, otherwise show meals by category
+      if (searchQuery.trim()) {
+        // For now, we just search built-in meals
+        // Could extend to search custom meals as well
+        setMeals(searchMealsByName(searchQuery));
+        setIsSearching(true);
+      } else {
+        // Get all meals including custom ones if user is logged in
+        if (user) {
+          const allMeals = await getAllMealsByCategoryWithCustom(user.uid, selectedCategory);
+          setMeals(allMeals);
+        } else {
+          // Fallback to only built-in meals if user is not logged in
+          setMeals(getMealsByCategory(selectedCategory));
+        }
+        setIsSearching(false);
+      }
+    } catch (error) {
+      console.error('Error loading meals:', error);
+    } finally {
+      setIsLoading(false);
     }
-  }, [selectedCategory, searchQuery]);
+  };
   
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -37,6 +71,11 @@ const MealSelector: React.FC<MealSelectorProps> = ({ onSelectMeal }) => {
   const handleClearSearch = () => {
     setSearchQuery('');
     setIsSearching(false);
+  };
+  
+  const handleAddMealComplete = () => {
+    setIsAddingMeal(false);
+    loadMeals(); // Reload meals to include the newly added one
   };
   
   const renderCategoryChip = (category: MealCategory) => {
@@ -68,47 +107,56 @@ const MealSelector: React.FC<MealSelectorProps> = ({ onSelectMeal }) => {
     );
   };
   
-  const renderMealItem = ({ item }: { item: Meal }) => (
-    <TouchableOpacity 
-      style={[
-        styles.mealCard, 
-        { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
-      ]}
-      onPress={() => onSelectMeal(item)}
-    >
-      <Image source={{ uri: item.image }} style={styles.mealImage} />
-      <View style={styles.mealInfo}>
-        <Text 
-          style={[
-            styles.mealName, 
-            { color: Colors[colorScheme ?? 'light'].text }
-          ]}
-        >
-          {item.name}
-        </Text>
-        <View style={styles.mealStats}>
-          <View style={styles.mealStat}>
-            <Ionicons name="flame-outline" size={14} color={Colors[colorScheme ?? 'light'].tint} />
-            <Text style={styles.mealStatText}>
-              {item.caloriesPer100g} kcal/100g
+  const renderMealItem = ({ item }: { item: Meal | UserMeal }) => {
+    const isCustom = 'isCustom' in item && item.isCustom;
+    
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.mealCard, 
+          { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }
+        ]}
+        onPress={() => onSelectMeal(item)}
+      >
+        <Image source={{ uri: item.image }} style={styles.mealImage} />
+        <View style={styles.mealInfo}>
+          <View style={styles.mealNameContainer}>
+            <Text 
+              style={[
+                styles.mealName, 
+                { color: Colors[colorScheme ?? 'light'].text }
+              ]}
+            >
+              {item.name}
             </Text>
+            {isCustom && (
+              <Badge size={20} style={styles.customBadge}>My</Badge>
+            )}
           </View>
-          <View style={styles.mealStat}>
-            <Ionicons name="barbell-outline" size={14} color={Colors[colorScheme ?? 'light'].tint} />
-            <Text style={styles.mealStatText}>
-              {item.proteinPer100g}g protein
-            </Text>
+          <View style={styles.mealStats}>
+            <View style={styles.mealStat}>
+              <Ionicons name="flame-outline" size={14} color={Colors[colorScheme ?? 'light'].tint} />
+              <Text style={styles.mealStatText}>
+                {item.caloriesPer100g} kcal/100g
+              </Text>
+            </View>
+            <View style={styles.mealStat}>
+              <Ionicons name="barbell-outline" size={14} color={Colors[colorScheme ?? 'light'].tint} />
+              <Text style={styles.mealStatText}>
+                {item.proteinPer100g}g protein
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
-      <Ionicons 
-        name="chevron-forward" 
-        size={20} 
-        color={Colors[colorScheme ?? 'light'].mutedText} 
-        style={styles.arrowIcon}
-      />
-    </TouchableOpacity>
-  );
+        <Ionicons 
+          name="chevron-forward" 
+          size={20} 
+          color={Colors[colorScheme ?? 'light'].mutedText} 
+          style={styles.arrowIcon}
+        />
+      </TouchableOpacity>
+    );
+  };
   
   return (
     <View style={styles.container}>
@@ -155,11 +203,60 @@ const MealSelector: React.FC<MealSelectorProps> = ({ onSelectMeal }) => {
               color={Colors[colorScheme ?? 'light'].mutedText} 
             />
             <Text style={{ color: Colors[colorScheme ?? 'light'].mutedText, marginTop: 10 }}>
-              {isSearching ? 'No meals found' : 'No meals available'}
+              {isLoading 
+                ? 'Loading meals...' 
+                : isSearching 
+                  ? 'No meals found' 
+                  : 'No meals available'}
             </Text>
+            {!isLoading && !isSearching && (
+              <TouchableOpacity 
+                onPress={() => setIsAddingMeal(true)}
+                style={styles.addMealButton}
+              >
+                <Text style={{ color: Colors[colorScheme ?? 'light'].tint }}>
+                  Add a custom meal
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         }
       />
+      
+      {/* FAB to add custom meal */}
+      {user && (
+        <FAB
+          icon="plus"
+          style={[
+            styles.fab,
+            { backgroundColor: Colors[colorScheme ?? 'light'].tint }
+          ]}
+          onPress={() => setIsAddingMeal(true)}
+        />
+      )}
+      
+      {/* Modal for adding a new meal */}
+      <Modal
+        visible={isAddingMeal}
+        animationType="slide"
+        onRequestClose={() => setIsAddingMeal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: Colors[colorScheme ?? 'light'].background }}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity 
+              onPress={() => setIsAddingMeal(false)}
+              style={styles.closeButton}
+            >
+              <Ionicons 
+                name="close" 
+                size={28} 
+                color={Colors[colorScheme ?? 'light'].text} 
+              />
+            </TouchableOpacity>
+          </View>
+          <AddMealForm onComplete={handleAddMealComplete} />
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -199,10 +296,18 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 16,
   },
+  mealNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
   mealName: {
     fontSize: 16,
     fontWeight: '500',
-    marginBottom: 6,
+    marginRight: 6,
+  },
+  customBadge: {
+    backgroundColor: '#FF6B6B',
   },
   mealStats: {
     flexDirection: 'row',
@@ -228,6 +333,29 @@ const styles = StyleSheet.create({
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  addMealButton: {
+    marginTop: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+  },
+  fab: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 0,
+  },
+  modalHeader: {
+    height: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+  },
+  closeButton: {
+    padding: 8,
   },
 });
 
