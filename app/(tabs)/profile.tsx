@@ -13,6 +13,7 @@ import { Text, Button, Dialog, Portal, Card, ProgressBar, Divider } from 'react-
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isUserAdmin } from '@/services/userService';
+import { getNextPaymentDate } from '@/services/paymentService';
 
 // Define the user type for TypeScript
 type User = {
@@ -50,6 +51,12 @@ export default function ProfileScreen() {
   const [editedData, setEditedData] = useState<EditedData>({});
   const colorScheme = useColorScheme();
   const [isAdmin, setIsAdmin] = useState(false);
+  
+  // New state for payment countdown
+  const [nextPayment, setNextPayment] = useState({
+    nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    daysRemaining: 30
+  });
 
   // Add a border color variable instead of relying on Colors
   const borderColor = colorScheme === 'dark' ? '#444' : '#ddd';
@@ -66,6 +73,10 @@ export default function ProfileScreen() {
           // Check if user is admin
           const adminStatus = await isUserAdmin(user.uid);
           setIsAdmin(adminStatus);
+          
+          // Fetch payment countdown data
+          const paymentData = await getNextPaymentDate(user.uid);
+          setNextPayment(paymentData);
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
@@ -178,6 +189,60 @@ export default function ProfileScreen() {
           </Button>
         </View>
         
+        {/* New Payment Countdown Card */}
+        <Card style={[styles.paymentCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
+          <Card.Content>
+            <View style={styles.paymentHeader}>
+              <Text style={[styles.paymentTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Next Payment Due
+              </Text>
+              <Ionicons 
+                name="calendar" 
+                size={22} 
+                color={Colors[colorScheme ?? 'light'].tint} 
+              />
+            </View>
+            
+            <View style={styles.countdownContainer}>
+              <Text style={[styles.daysText, { 
+                color: nextPayment.daysRemaining <= 3 ? '#FF3B30' : 
+                       nextPayment.daysRemaining <= 7 ? '#FF9500' : 
+                       Colors[colorScheme ?? 'light'].tint 
+              }]}>
+                {nextPayment.daysRemaining}
+              </Text>
+              <Text style={[styles.daysLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                days left
+              </Text>
+            </View>
+            
+            <ProgressBar
+              progress={(30 - Math.min(nextPayment.daysRemaining, 30)) / 30}
+              color={
+                nextPayment.daysRemaining <= 3 ? '#FF3B30' : 
+                nextPayment.daysRemaining <= 7 ? '#FF9500' : 
+                Colors[colorScheme ?? 'light'].tint
+              }
+              style={styles.progressBar}
+            />
+            
+            <Text style={[styles.dateText, { color: Colors[colorScheme ?? 'light'].mutedText }]}>
+              Due on {nextPayment.nextPaymentDate.toLocaleDateString()}
+            </Text>
+            
+            {nextPayment.daysRemaining <= 7 && (
+              <Button 
+                mode="contained" 
+                icon="credit-card" 
+                style={styles.payNowButton}
+                onPress={() => router.push('/payment')} // You would need to create this payment page
+              >
+                Pay Now
+              </Button>
+            )}
+          </Card.Content>
+        </Card>
+
         {/* Health Metrics Card */}
         <Card style={[styles.metricsCard, { backgroundColor: Colors[colorScheme ?? 'light'].cardBackground }]}>
           <Card.Title title="Health Metrics" />
@@ -585,5 +650,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginBottom: 12,
+  },
+  paymentCard: {
+    margin: 16,
+    borderRadius: 12,
+    marginTop: 0,
+  },
+  paymentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  paymentTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  countdownContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  daysText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+  },
+  daysLabel: {
+    fontSize: 16,
+  },
+  progressBar: {
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  dateText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  payNowButton: {
+    marginTop: 8,
   },
 });

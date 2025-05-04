@@ -198,3 +198,50 @@ export const updatePaymentStatus = async (
     throw error;
   }
 };
+
+/**
+ * Get the next payment due date for a user
+ * @param userId The ID of the user to get the next payment date for
+ * @returns Object containing next payment date and days remaining
+ */
+export const getNextPaymentDate = async (
+  userId: string
+): Promise<{ nextPaymentDate: Date; daysRemaining: number }> => {
+  try {
+    // Get user's payments sorted by date (newest first)
+    const payments = await getUserPayments(userId);
+    
+    // Default to current date if no payments exist
+    let lastPaymentDate = new Date();
+    
+    // Find the most recent completed payment
+    const completedPayments = payments.filter(
+      payment => payment.status === 'completed' || payment.status === 'succeeded'
+    );
+    
+    if (completedPayments.length > 0) {
+      lastPaymentDate = completedPayments[0].date;
+    }
+    
+    // Calculate the next payment date (30 days after the last payment)
+    const nextPaymentDate = new Date(lastPaymentDate);
+    nextPaymentDate.setDate(lastPaymentDate.getDate() + 30);
+    
+    // Calculate days remaining
+    const today = new Date();
+    const diffTime = nextPaymentDate.getTime() - today.getTime();
+    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    return {
+      nextPaymentDate,
+      daysRemaining: Math.max(0, daysRemaining) // Ensure days remaining is not negative
+    };
+  } catch (error) {
+    console.error('Error calculating next payment date:', error);
+    // Return default values in case of error
+    return {
+      nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      daysRemaining: 30
+    };
+  }
+};
