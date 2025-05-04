@@ -7,9 +7,18 @@ export interface Payment {
   userId: string;
   amount: number;
   date: Date;
-  status: 'completed' | 'pending' | 'failed';
+  status: 'completed' | 'pending' | 'failed' | 'succeeded';
   method: 'manual' | 'credit_card' | 'paypal' | 'bank_transfer';
   description?: string;
+  // Additional fields for compatibility with different payment systems
+  createdAt?: Date;
+  created?: number; // Unix timestamp
+  currency?: string;
+  type?: string;
+  paymentMethod?: {
+    id: string;
+    type: string;
+  };
 }
 
 /**
@@ -55,10 +64,12 @@ export const getAllPayments = async (): Promise<Payment[]> => {
 export const getUserPayments = async (userId: string): Promise<Payment[]> => {
   try {
     const paymentsRef = collection(db, 'payments');
+    
+    // First try to query by createdAt field
     const userPaymentsQuery = query(
       paymentsRef,
       where('userId', '==', userId),
-      orderBy('date', 'desc')
+      orderBy('createdAt', 'desc')
     );
     
     const querySnapshot = await getDocs(userPaymentsQuery);
@@ -70,11 +81,24 @@ export const getUserPayments = async (userId: string): Promise<Payment[]> => {
         id: doc.id,
         userId: data.userId,
         amount: data.amount,
-        date: data.date.toDate(), // Convert Firestore timestamp to Date
+        date: (data.date || data.createdAt).toDate(), // Handle both fields
         status: data.status,
-        method: data.method,
-        description: data.description
+        method: data.method || data.type, // Handle both fields
+        description: data.description,
+        // Store the actual timestamp used for sorting
+        createdAt: data.createdAt?.toDate() || data.date?.toDate(),
+        created: data.created,
+        currency: data.currency || 'USD',
+        type: data.type || data.method,
+        paymentMethod: data.paymentMethod
       });
+    });
+    
+    // Sort payments by date in descending order to ensure consistency
+    payments.sort((a, b) => {
+      const dateA = a.createdAt || a.date;
+      const dateB = b.createdAt || b.date;
+      return dateB.getTime() - dateA.getTime();
     });
     
     return payments;
@@ -94,21 +118,32 @@ export const processPayment = async (payment: Omit<Payment, 'id'>): Promise<Paym
     // Create a new payment record in Firestore
     const paymentsRef = collection(db, 'payments');
     
-    // Convert JavaScript Date to Firestore Timestamp
+    // Create a payment document that works with both payment systems
     const firestorePayment = {
       ...payment,
-      date: Timestamp.fromDate(payment.date)
+      // Original payment fields
+      date: Timestamp.fromDate(payment.date),
+      
+      // Add fields needed by userService.getUserPayments:
+      createdAt: Timestamp.fromDate(payment.date),
+      created: Math.floor(payment.date.getTime() / 1000), // Unix timestamp in seconds
+      type: payment.method, // Map method to type for compatibility
+      currency: 'USD', // Default currency
+      status: payment.status, // Make sure status is included
+      paymentMethod: {
+        id: payment.method,
+        type: payment.method
+      }
     };
     
     const docRef = await addDoc(paymentsRef, firestorePayment);
     
-    // Return complete payment object with the new ID
     return {
       ...payment,
       id: docRef.id
     };
   } catch (error) {
-    console.error('Error recording payment:', error);
+    console.error('Error processing payment:', error);
     throw error;
   }
 };

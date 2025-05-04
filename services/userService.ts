@@ -237,31 +237,34 @@ export const getUserPayments = async (userId: string): Promise<Payment[]> => {
     const paymentsQuery = query(
       collection(db, 'payments'),
       where('userId', '==', userId),
-      orderBy('date', 'desc')
+      orderBy('createdAt', 'desc')
     );
     
     const paymentsSnapshot = await getDocs(paymentsQuery);
     const payments: Payment[] = [];
     
     paymentsSnapshot.forEach((doc) => {
-      payments.push({ id: doc.id, ...doc.data() } as Payment);
+      const data = doc.data();
+      // Handle both type and method fields for backward compatibility
+      const paymentData = {
+        id: doc.id,
+        ...data,
+        // Ensure type field exists (use method as fallback)
+        type: data.type || data.method || 'one-time',
+        // Ensure currency field exists
+        currency: data.currency || 'USD',
+        // Ensure paymentMethod field is structured correctly
+        paymentMethod: data.paymentMethod || {
+          id: 'manual',
+          type: 'manual'
+        }
+      } as Payment;
+      
+      payments.push(paymentData);
     });
     
-    // Console log to display specific user payments
-    console.log(`Fetched ${payments.length} payments for user ${userId}:`, 
-      payments.map(p => ({
-        id: p.id,
-        amount: p.amount,
-        currency: p.currency || 'USD',
-        status: p.status,
-        type: p.type || p.method,
-        date: p.date instanceof Timestamp ? 
-          p.date.toDate().toISOString() : 
-          (p.date instanceof Date ? 
-            p.date.toISOString() : 
-            'Invalid date')
-      }))
-    );
+    // Log for debugging
+    console.log(`Fetched ${payments.length} payments for user ${userId}`);
     
     return payments;
   } catch (error) {
@@ -299,7 +302,27 @@ export const getAllPayments = async (
     const payments: Payment[] = [];
     
     paymentsSnapshot.forEach((doc) => {
-      payments.push({ id: doc.id, ...doc.data() } as Payment);
+      const data = doc.data();
+      // Normalize payment data to handle different formats
+      const paymentData = {
+        id: doc.id,
+        ...data,
+        // Ensure type field exists (use method as fallback)
+        type: data.type || data.method || 'one-time',
+        // Ensure currency field exists
+        currency: data.currency || 'USD',
+        // Ensure status field exists
+        status: data.status || 'completed',
+        // Ensure amount is a number
+        amount: typeof data.amount === 'number' ? data.amount : parseFloat(data.amount) || 0,
+        // Ensure paymentMethod field is structured correctly
+        paymentMethod: data.paymentMethod || {
+          id: 'manual',
+          type: 'manual'
+        }
+      } as Payment;
+      
+      payments.push(paymentData);
     });
     
     return payments;
@@ -328,8 +351,31 @@ export const getPaymentsByPeriod = async (startDate: Date, endDate: Date): Promi
     const payments: Payment[] = [];
     
     paymentsSnapshot.forEach((doc) => {
-      payments.push({ id: doc.id, ...doc.data() } as Payment);
+      const data = doc.data();
+      // Normalize payment data to handle legacy and current formats
+      const paymentData = {
+        id: doc.id,
+        ...data,
+        // Ensure type field exists (use method as fallback)
+        type: data.type || data.method || 'one-time',
+        // Ensure currency field exists
+        currency: data.currency || 'USD',
+        // Ensure status field exists
+        status: data.status || 'completed',
+        // Ensure amount is a number
+        amount: typeof data.amount === 'number' ? data.amount : parseFloat(data.amount) || 0,
+        // Ensure paymentMethod field is structured correctly
+        paymentMethod: data.paymentMethod || {
+          id: 'manual',
+          type: 'manual'
+        }
+      } as Payment;
+      
+      payments.push(paymentData);
     });
+    
+    // Log for debugging
+    console.log(`Fetched ${payments.length} payments for period ${startDate.toDateString()} to ${endDate.toDateString()}`);
     
     return payments;
   } catch (error) {
@@ -343,39 +389,69 @@ export const getPaymentsByPeriod = async (startDate: Date, endDate: Date): Promi
  */
 export const calculateRevenue = async (startDate: Date, endDate: Date): Promise<FinancialPeriod> => {
   try {
-    const payments = await getPaymentsByPeriod(startDate, endDate);
+    // Get all payments for the period
+    const paymentsQuery = query(
+      collection(db, 'payments'),
+      where('createdAt', '>=', Timestamp.fromDate(startDate)),
+      where('createdAt', '<=', Timestamp.fromDate(endDate)),
+      orderBy('createdAt', 'desc')
+    );
     
+    const paymentsSnapshot = await getDocs(paymentsQuery);
+    console.log(`Found ${paymentsSnapshot.size} payments in period ${startDate.toDateString()} to ${endDate.toDateString()}`);
+    
+    // Initialize counters
     let totalRevenue = 0;
     let newSubscriptions = 0;
     let renewals = 0;
     let cancellations = 0;
     let refunds = 0;
     
-    payments.forEach(payment => {
-      if (payment.status === 'completed') {
-        if (payment.type === 'subscription') {
-          totalRevenue += payment.amount;
-          if (payment.metadata?.isRenewal) {
+    // Process each payment and categorize properly
+    paymentsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      
+      // Normalize payment data
+      const paymentType = data.type || data.method || 'one-time';
+      const paymentStatus = data.status || 'completed';
+      const metadata = data.metadata || {};
+      
+      // Convert amount to number, default to 0 if invalid
+      const amountStr = data.amount?.toString() || '0';
+      const amount = parseFloat(amountStr);
+      
+      if (isNaN(amount)) {
+        console.warn(`Invalid amount for payment ${doc.id}: ${data.amount}`);
+        return;
+      }
+      
+      // Process based on payment type and status
+      if (paymentStatus === 'refunded') {
+        refunds++;
+        totalRevenue -= amount; // Subtract refunds from revenue
+      } else if (paymentStatus === 'completed') {
+        if (paymentType === 'subscription') {
+          if (metadata.isRenewal) {
             renewals++;
           } else {
             newSubscriptions++;
           }
-        } else if (payment.type === 'one-time') {
-          totalRevenue += payment.amount;
+          totalRevenue += amount;
+        } else if (paymentType === 'one-time') {
+          totalRevenue += amount;
+        } else if (paymentType === 'cancellation') {
+          cancellations++;
         }
-      } else if (payment.status === 'refunded' || payment.type === 'refund') {
-        refunds++;
-        totalRevenue -= payment.amount;
       }
       
-      if (payment.metadata?.cancellation) {
-        cancellations++;
-      }
+      console.log(`Payment ${doc.id}: Amount=${amount}, Type=${paymentType}, Status=${paymentStatus}`);
     });
     
-    const netGrowth = newSubscriptions - cancellations;
+    // Calculate net growth
+    const netGrowth = newSubscriptions + renewals - cancellations - refunds;
     
-    return {
+    // Create result object
+    const result = {
       startDate,
       endDate,
       totalRevenue,
@@ -385,9 +461,25 @@ export const calculateRevenue = async (startDate: Date, endDate: Date): Promise<
       refunds,
       netGrowth
     };
+    
+    console.log('Financial calculation result:', result);
+    
+    return result;
   } catch (error) {
     console.error('Error calculating revenue:', error);
-    throw error;
+    console.error(error);
+    
+    // Return a default object with zeros in case of error
+    return {
+      startDate,
+      endDate,
+      totalRevenue: 0,
+      newSubscriptions: 0,
+      renewals: 0, 
+      cancellations: 0,
+      refunds: 0,
+      netGrowth: 0
+    };
   }
 };
 
